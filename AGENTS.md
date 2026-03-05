@@ -166,19 +166,42 @@ pnpm check               # Typecheck + lint
 
 Releases are triggered by pushing a version tag. CI runs quality checks, deploys to Cloudflare Pages, and creates a GitHub release with changelog.
 
+**Remote:** `https://github.com/brantenK/Zano-sheets.git` (branch: `main`)
+
+### Pre-deploy checklist
+
+```bash
+pnpm typecheck   # must be 0 errors
+pnpm build       # must complete with no errors (chunk size warnings are OK)
+```
+
 ### Steps
 
 1. Update `CHANGELOG.md` — move `[Unreleased]` contents to a new `[x.y.z]` section, add fresh `[Unreleased]` header
-2. Bump version and tag:
+2. Stage and commit your changes:
+   ```bash
+   git add .
+   git commit -m "your message"
+   ```
+3. Bump version and tag:
    ```bash
    pnpm version patch       # or minor/major — updates package.json, creates git tag
    git push && git push --tags
    ```
-3. CI (`.github/workflows/release.yml`):
+4. CI (`.github/workflows/release.yml`):
    1. Runs typecheck, lint, build
    2. Extracts changelog section for the tagged version from `CHANGELOG.md`
    3. Deploys to Cloudflare Pages
    4. Creates GitHub release with the extracted changelog
+
+### First-time setup (already done)
+
+```bash
+git init
+git remote add origin https://github.com/brantenK/Zano-sheets.git
+git branch -M main
+git push -u origin main
+```
 
 ## Configuration Storage
 
