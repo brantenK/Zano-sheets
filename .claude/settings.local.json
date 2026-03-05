@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit)",
+      "Bash(where pnpm)",
+      "Bash(where npx)",
+      "Bash(where npm)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(ls \"/c/Users/BrantenKonyana/OneDrive - Genesis Chartered Accountants/Documents/open-excel-main/node_modules/.bin/vite\"*)",
+      "Bash(ls \"/c/Users/BrantenKonyana/OneDrive - Genesis Chartered Accountants/Documents/open-excel-main/src/taskpane/\"*.html)",
+      "Bash(ls \"/c/Users/BrantenKonyana/OneDrive - Genesis Chartered Accountants/Documents/open-excel-main/\"*.html)",
+      "Bash(\"/c/Users/BrantenKonyana/AppData/Roaming/npm/pnpm.cmd\" patch-commit \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\\\\node_modules\\\\.pnpm_patches\\\\@mariozechner\\\\pi-ai@0.55.4\")"
+    ]
+  }
+}

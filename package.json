@@ -1,0 +1,83 @@
+{
+  "name": "office-addin-taskpane-react",
+  "version": "0.2.4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OfficeDev/Office-Addin-TaskPane-React.git"
+  },
+  "license": "MIT",
+  "config": {
+    "app_to_debug": "excel",
+    "app_type_to_debug": "desktop",
+    "dev_server_port": 3000
+  },
+  "scripts": {
+    "build": "vite build",
+    "deploy": "pnpm build && pnpm dlx wrangler pages deploy dist --project-name zano-sheets",
+    "build:dev": "vite build --mode development",
+    "dev-server": "vite --mode development",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "check": "tsc --noEmit --skipLibCheck && biome check src/ && pnpm validate",
+    "smoke:dev-server": "node scripts/smoke-dev-server.mjs",
+    "signin": "office-addin-dev-settings m365-account login",
+    "signout": "office-addin-dev-settings m365-account logout",
+    "start": "office-addin-debugging start manifest.xml",
+    "stop": "office-addin-debugging stop manifest.xml",
+    "validate": "office-addin-manifest validate manifest.xml && office-addin-manifest validate manifest.prod.xml",
+    "watch": "vite build --mode development --watch"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.55.4",
+    "@mariozechner/pi-ai": "^0.55.4",
+    "@mozilla/readability": "^0.6.0",
+    "@sentry/react": "^10.40.0",
+    "@sinclair/typebox": "^0.34.48",
+    "@streamdown/code": "^1.0.1",
+    "@types/turndown": "^5.0.6",
+    "idb": "^8.0.3",
+    "just-bash": "^2.7.0",
+    "lucide-react": "^0.563.0",
+    "mammoth": "^1.11.0",
+    "pdfjs-dist": "^5.4.624",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ses": "^1.14.0",
+    "streamdown": "^2.1.0",
+    "turndown": "^7.2.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.13",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/office-js": "^1.0.377",
+    "@types/office-runtime": "^1.0.35",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.24",
+    "office-addin-cli": "^2.0.3",
+    "office-addin-debugging": "^6.0.3",
+    "office-addin-dev-certs": "^2.0.3",
+    "office-addin-lint": "^3.0.3",
+    "office-addin-manifest": "^2.0.3",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.4.2",
+    "vite": "^6.3.5",
+    "vite-plugin-node-polyfills": "^0.2.0",
+    "vite-plugin-static-copy": "^3.2.0",
+    "vitest": "^4.0.18"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "patchedDependencies": {
+      "@mariozechner/pi-ai@0.55.4": "patches/@mariozechner__pi-ai@0.55.4.patch"
+    }
+  }
+}
