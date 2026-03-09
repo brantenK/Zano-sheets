@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
 import { bustWorkbookMetadataCache, modifySheetStructure } from "../excel/api";
+import { getFriendlyError } from "./error-mapper";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 export const modifySheetStructureTool = defineTool({
@@ -23,7 +24,8 @@ export const modifySheetStructureTool = defineTool({
     ),
     dimension: Type.Optional(
       Type.Union([Type.Literal("rows"), Type.Literal("columns")], {
-        description: "Rows or columns. Required for all operations except 'unfreeze'.",
+        description:
+          "Rows or columns. Required for all operations except 'unfreeze'.",
       }),
     ),
     reference: Type.Optional(
@@ -62,11 +64,11 @@ export const modifySheetStructureTool = defineTool({
       bustWorkbookMetadataCache();
       return toolSuccess(result);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Unknown error modifying structure";
-      return toolError(message);
+      const friendlyMessage = getFriendlyError(error, {
+        toolName: "modify_sheet_structure",
+        params,
+      });
+      return toolError(friendlyMessage);
     }
   },
 });

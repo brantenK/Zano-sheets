@@ -8,6 +8,11 @@ export interface WebConfig {
   };
 }
 
+export interface WebConfigStorageResult {
+  ok: boolean;
+  error?: string;
+}
+
 const STORAGE_KEY = "zanosheets-web-config-v1";
 const LEGACY_STORAGE_KEY = "openexcel-web-config";
 
@@ -51,19 +56,41 @@ export function loadWebConfig(): WebConfig {
 }
 
 export function saveWebConfig(config: Partial<WebConfig>) {
-  const current = loadWebConfig();
-  const next: WebConfig = {
-    searchProvider: config.searchProvider || current.searchProvider,
-    fetchProvider: config.fetchProvider || current.fetchProvider,
-    apiKeys: {
-      ...current.apiKeys,
-      ...(config.apiKeys || {}),
-    },
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  try {
+    const current = loadWebConfig();
+    const next: WebConfig = {
+      searchProvider: config.searchProvider || current.searchProvider,
+      fetchProvider: config.fetchProvider || current.fetchProvider,
+      apiKeys: {
+        ...current.apiKeys,
+        ...(config.apiKeys || {}),
+      },
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    return { ok: true } satisfies WebConfigStorageResult;
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to save web settings in browser storage.",
+    } satisfies WebConfigStorageResult;
+  }
 }
 
 export function clearWebConfig() {
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    return { ok: true } satisfies WebConfigStorageResult;
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to clear saved web settings.",
+    } satisfies WebConfigStorageResult;
+  }
 }

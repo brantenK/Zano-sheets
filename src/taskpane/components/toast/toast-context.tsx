@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 export type ToastType = "success" | "error" | "info" | "warning";
 
@@ -20,6 +27,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timeoutIdsRef = useRef<number[]>([]);
 
   const showToast = useCallback(
     (type: ToastType, message: string, duration: number = 5000) => {
@@ -29,13 +37,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
       // Auto-dismiss
       if (duration > 0) {
-        setTimeout(() => {
+        const timeoutId = window.setTimeout(() => {
           setToasts((prev) => prev.filter((t) => t.id !== id));
         }, duration);
+        timeoutIdsRef.current.push(timeoutId);
       }
     },
     [],
   );
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of timeoutIdsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutIdsRef.current = [];
+    };
+  }, []);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));

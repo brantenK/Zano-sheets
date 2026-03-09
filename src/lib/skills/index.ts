@@ -5,7 +5,6 @@ import {
   loadSkillFiles,
   saveSkillFiles,
 } from "../storage";
-import { setSkillFiles } from "../vfs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -19,6 +18,10 @@ export interface SkillMeta {
 export interface SkillInput {
   path: string;
   data: string | Uint8Array;
+}
+
+async function loadVfsSkillApi() {
+  return import("../vfs");
 }
 
 export function parseSkillMeta(content: string): SkillMeta | null {
@@ -106,6 +109,9 @@ export async function addSkill(files: SkillInput[]): Promise<SkillMeta> {
 
 export async function removeSkill(name: string): Promise<void> {
   await deleteSkillFiles(name);
+  // Clear skill cache and re-sync remaining skills
+  const { clearSkillFiles } = await loadVfsSkillApi();
+  clearSkillFiles();
   await syncSkillsToVfs();
 }
 
@@ -132,10 +138,15 @@ export async function getInstalledSkills(): Promise<SkillMeta[]> {
 
 export async function syncSkillsToVfs(): Promise<void> {
   const allFiles = await loadAllSkillFiles();
+  if (allFiles.length === 0) {
+    return;
+  }
+
   const initialFiles: Record<string, Uint8Array> = {};
   for (const f of allFiles) {
     initialFiles[`/home/skills/${f.skillName}/${f.path}`] = f.data;
   }
+  const { setSkillFiles } = await loadVfsSkillApi();
   setSkillFiles(initialFiles);
 }
 

@@ -1,12 +1,12 @@
+import type { Api, Model } from "@mariozechner/pi-ai";
 import {
-  type Api,
-  getModels,
-  getProviders,
-  type Model,
-} from "@mariozechner/pi-ai";
+  getCachedModelsForProvider,
+  getCachedProviders,
+} from "./chat/provider-catalog";
 import { loadOAuthCredentials } from "./oauth";
 
 export type ThinkingLevel = "none" | "low" | "medium" | "high";
+export type BashMode = "on-demand" | "auto";
 
 export interface ProviderConfig {
   provider: string;
@@ -16,6 +16,7 @@ export interface ProviderConfig {
   proxyUrl: string;
   thinking: ThinkingLevel;
   followMode: boolean;
+  bashMode: BashMode;
   apiType?: string;
   customBaseUrl?: string;
   authMethod?: "apikey" | "oauth";
@@ -85,27 +86,25 @@ export function evaluateProviderConfig(
       blocking.push("Enter a base URL for Custom Endpoint.");
     }
   } else {
-    const providers = new Set(
-      getProviders().map((provider) => String(provider)),
-    );
-    if (!providers.has(config.provider)) {
-      blocking.push(
-        `Provider '${config.provider}' is not available in this build.`,
-      );
+    const providers = getCachedProviders();
+    if (providers.length > 0) {
+      const providerSet = new Set(providers);
+      if (!providerSet.has(config.provider)) {
+        blocking.push(
+          `Provider '${config.provider}' is not available in this build.`,
+        );
+      }
     }
+
     if (config.model) {
-      try {
-        const models = getModels(config.provider as never);
+      const models = getCachedModelsForProvider(config.provider);
+      if (models.length > 0) {
         const modelIds = new Set(models.map((m) => m.id));
         if (!modelIds.has(config.model)) {
           blocking.push(
             `Model '${config.model}' is not in '${config.provider}' catalog. Re-select model in Settings.`,
           );
         }
-      } catch {
-        blocking.push(
-          `Could not load model catalog for provider '${config.provider}'.`,
-        );
       }
     }
   }
@@ -149,7 +148,7 @@ export function isProviderConfigReady(config: ProviderConfig): boolean {
   return Boolean(config.apiKey);
 }
 
-// v2 key names — abandons the old corrupted stores entirely
+// v2 key names ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â abandons the old corrupted stores entirely
 const STORAGE_KEY = "zanosheets-config-v2";
 const API_KEYS_STORAGE_KEY = "zanosheets-keys-v2";
 const API_KEY_PROVIDER_PREFIX = "zanosheets-key-v2::";
@@ -262,6 +261,7 @@ export function loadSavedConfig(): ProviderConfig | null {
       proxyUrl: parsed.proxyUrl ?? "",
       thinking: parsed.thinking ?? "none",
       followMode: parsed.followMode ?? true,
+      bashMode: parsed.bashMode ?? "on-demand",
       apiType: parsed.apiType ?? "",
       customBaseUrl: parsed.customBaseUrl ?? "",
       authMethod: parsed.authMethod ?? "apikey",
@@ -325,7 +325,7 @@ export const API_TYPES = [
   {
     id: "openai-completions",
     name: "OpenAI Completions",
-    hint: "Most compatible — Ollama, vLLM, LMStudio, etc.",
+    hint: "Most compatible with Ollama, vLLM, LMStudio, etc.",
   },
   {
     id: "openai-responses",

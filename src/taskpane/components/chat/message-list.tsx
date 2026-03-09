@@ -1,21 +1,25 @@
-import { code } from "@streamdown/code";
 import {
   Brain,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Edit3,
   Loader2,
   Maximize2,
-  ShieldAlert,
   Wrench,
   X,
   XCircle,
 } from "lucide-react";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
+import type { AnchorHTMLAttributes, ComponentType, ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type DirtyRange, mergeRanges } from "../../../lib/dirty-tracker";
 import { navigateTo } from "../../../lib/excel/api";
 import type { ChatMessage, MessagePart } from "../../../lib/message-utils";
@@ -54,6 +58,23 @@ function ThinkingBlock({
 }
 
 type ToolCallPart = Extract<MessagePart, { type: "toolCall" }>;
+
+type MarkdownComponentMap = {
+  a?: (props: AnchorHTMLAttributes<HTMLAnchorElement>) => ReactNode;
+};
+
+type MarkdownRendererProps = {
+  children: string;
+  components?: MarkdownComponentMap;
+  isAnimating?: boolean;
+};
+
+const LazyStreamdown = lazy(async () => {
+  const module = await import("streamdown");
+  return {
+    default: module.Streamdown as ComponentType<MarkdownRendererProps>,
+  };
+});
 
 function parseDirtyRanges(result: string | undefined): DirtyRange[] | null {
   if (!result) return null;
@@ -161,8 +182,8 @@ function DirtyRangeSummary({ ranges }: { ranges: DirtyRange[] }) {
 }
 
 function ToolCallBlock({ part }: { part: ToolCallPart }) {
-  const { getSheetName, confirmToolCall } = useChat();
-  const [isExpanded, setIsExpanded] = useState(part.status === "pending");
+  const { getSheetName } = useChat();
+  const [isExpanded, setIsExpanded] = useState(false);
   const explanation = (part.args as { explanation?: string })?.explanation;
 
   const dirtyRanges = useMemo(
@@ -175,9 +196,7 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
   }, [dirtyRanges, getSheetName]);
 
   const statusIcon = {
-    pending: (
-      <ShieldAlert size={10} className="text-(--chat-accent) animate-pulse" />
-    ),
+    pending: <CheckCircle2 size={10} className="text-(--chat-accent)" />,
     running: (
       <Loader2 size={10} className="animate-spin text-(--chat-accent)" />
     ),
@@ -187,7 +206,7 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
 
   return (
     <div
-      className={`mt-3 mb-2 border rounded-sm overflow-hidden transition-colors ${part.status === "pending" ? "border-(--chat-accent) bg-(--chat-accent)/5" : "border-(--chat-border) bg-(--chat-bg)"}`}
+      className={`mt-3 mb-2 border rounded-sm overflow-hidden transition-colors border-(--chat-border) bg-(--chat-bg)`}
     >
       <button
         type="button"
@@ -198,7 +217,6 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
         <Wrench size={10} />
         <span className="flex-1 text-left font-medium truncate">
           {explanation || part.name}
-          {part.status === "pending" && " (Awaiting Approval)"}
         </span>
         {hasValidDirtyRanges && !isExpanded && (
           <span
@@ -213,32 +231,6 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
       </button>
       {isExpanded && (
         <div className="border-t border-(--chat-border)">
-          {part.status === "pending" && (
-            <div className="px-2 py-2 bg-(--chat-accent)/10 border-b border-(--chat-border) flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-(--chat-accent) text-[10px] font-bold uppercase">
-                <ShieldAlert size={12} />
-                Action Required
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => confirmToolCall(part.id, false)}
-                  className="flex items-center gap-1 px-2 py-1 bg-(--chat-bg) border border-(--chat-error) text-(--chat-error) text-[10px] font-bold rounded-sm hover:bg-(--chat-error) hover:text-white transition-colors"
-                >
-                  <X size={10} />
-                  Reject
-                </button>
-                <button
-                  type="button"
-                  onClick={() => confirmToolCall(part.id, true)}
-                  className="flex items-center gap-1 px-2 py-1 bg-(--chat-accent) border border-(--chat-accent) text-white text-[10px] font-bold rounded-sm hover:opacity-90 transition-colors shadow-sm"
-                >
-                  <Check size={10} />
-                  Approve
-                </button>
-              </div>
-            </div>
-          )}
           {hasValidDirtyRanges && (
             <div className="px-2 py-1 text-[10px] bg-(--chat-warning-bg) text-(--chat-warning) flex items-center gap-1 flex-wrap">
               <Edit3 size={9} className="shrink-0" />
@@ -251,9 +243,11 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
               args
             </div>
             <div className="markdown-content max-h-32 overflow-y-auto **:data-[streamdown=code-block]:my-0 **:data-[streamdown=code-block]:border-0">
-              <Streamdown
-                plugins={{ code }}
-              >{`\`\`\`json\n${JSON.stringify(part.args, null, 2)}\n\`\`\``}</Streamdown>
+              <DeferredMarkdown
+                text={`\`\`\`json
+${JSON.stringify(part.args, null, 2)}
+\`\`\``}
+              />
             </div>
           </div>
           {part.images && part.images.length > 0 && (
@@ -276,9 +270,11 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
               <div
                 className={`markdown-content max-h-40 overflow-y-auto **:data-[streamdown=code-block]:my-0 **:data-[streamdown=code-block]:border-0 ${part.status === "error" ? "[&_code]:text-red-400!" : ""}`}
               >
-                <Streamdown
-                  plugins={{ code }}
-                >{`\`\`\`json\n${part.result}\n\`\`\``}</Streamdown>
+                <DeferredMarkdown
+                  text={`\`\`\`json
+${part.result}
+\`\`\``}
+                />
               </div>
             </div>
           )}
@@ -345,7 +341,29 @@ function CitationLink({
   );
 }
 
-const markdownComponents = { a: CitationLink };
+const markdownComponents: MarkdownComponentMap = { a: CitationLink };
+
+function MarkdownFallback({ text }: { text: string }) {
+  return <div className="whitespace-pre-wrap break-words">{text}</div>;
+}
+
+function DeferredMarkdown({
+  text,
+  isAnimating,
+  components,
+}: {
+  text: string;
+  isAnimating?: boolean;
+  components?: MarkdownComponentMap;
+}) {
+  return (
+    <Suspense fallback={<MarkdownFallback text={text} />}>
+      <LazyStreamdown components={components} isAnimating={isAnimating}>
+        {text}
+      </LazyStreamdown>
+    </Suspense>
+  );
+}
 
 function MarkdownContent({
   text,
@@ -356,13 +374,11 @@ function MarkdownContent({
 }) {
   return (
     <div className="markdown-content">
-      <Streamdown
-        plugins={{ code }}
+      <DeferredMarkdown
+        text={text}
         components={markdownComponents}
         isAnimating={isAnimating}
-      >
-        {text}
-      </Streamdown>
+      />
     </div>
   );
 }
@@ -570,12 +586,11 @@ export function MessageList() {
     shouldAutoScroll.current = distanceFromBottom < 100;
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional - trigger scroll on message/streaming changes
   useEffect(() => {
     if (containerRef.current && shouldAutoScroll.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [state.messages, state.isStreaming]);
+  });
 
   if (state.messages.length === 0) {
     return (

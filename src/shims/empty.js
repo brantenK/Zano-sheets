@@ -26,17 +26,36 @@ export const platform = () => "browser";
 export const tmpdir = () => "";
 export const EOL = "\n";
 
+// node:module
+export const createRequire = () => () => {
+  throw new Error("createRequire is not available in the browser runtime");
+};
+
 // node:path
 export const join = (...parts) => parts.filter(Boolean).join("/");
 export const resolve = (...parts) => parts.filter(Boolean).join("/");
 export const dirname = (p) => p.split("/").slice(0, -1).join("/");
 export const basename = (p) => p.split("/").pop() ?? "";
+export const isAbsolute = (p) => typeof p === "string" && p.startsWith("/");
+export const relative = (_from, to) => to ?? "";
 export const extname = (p) => {
   const b = basename(p);
   const i = b.lastIndexOf(".");
   return i > 0 ? b.slice(i) : "";
 };
 export const sep = "/";
+
+// node:url
+export const fileURLToPath = (value) => {
+  if (typeof value === "string") {
+    return value.startsWith("file://") ? value.slice(7) : value;
+  }
+  return value?.pathname ?? "";
+};
+export const pathToFileURL = (value) => ({
+  href: `file://${value}`,
+  pathname: value,
+});
 
 // node:crypto
 export const createHash = () => ({ update: () => ({ digest: () => "" }) });
@@ -51,6 +70,19 @@ export const get = () => ({ on: () => {}, end: () => {} });
 export const createServer = () => ({ listen: () => {}, close: () => {} });
 export const IncomingMessage = class {};
 export const ServerResponse = class {};
+
+// node:worker_threads
+export const Worker = class {
+  postMessage() {}
+  terminate() {
+    return Promise.resolve(0);
+  }
+  on() {
+    return this;
+  }
+};
+export const parentPort = null;
+export const workerData = undefined;
 
 // node:zlib
 export const createGunzip = () => ({});

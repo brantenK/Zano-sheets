@@ -2,10 +2,17 @@ import type { Command, CustomCommand } from "just-bash/browser";
 import { defineCommand } from "just-bash/browser";
 import type { CellInput } from "../excel/api";
 import { getRangeAsCsv, getWorksheetById, setCellRange } from "../excel/api";
+import { startPerfSpan } from "../perf-telemetry";
 import { loadSavedConfig } from "../provider-config";
 import { loadWebConfig } from "../web/config";
 import { fetchWeb } from "../web/fetch";
 import { searchWeb } from "../web/search";
+import {
+  convertWorkbookToCsvInWorker,
+  extractDocxTextInWorker,
+  extractPdfTextInWorker,
+  renderPdfImagesInWorker,
+} from "./conversion-worker-client";
 
 function columnIndexToLetter(index: number): string {
   let letter = "";
@@ -178,7 +185,7 @@ const csvToSheet: Command = defineCommand("csv-to-sheet", async (args, ctx) => {
     });
 
     return {
-      stdout: `Imported ${rows.length} rows × ${maxCols} columns into sheet ${sheetId} at ${upperStartCell} (${rangeAddr}). ${result.cellsWritten} cells written.`,
+      stdout: `Imported ${rows.length} rows x ${maxCols} columns into sheet ${sheetId} at ${upperStartCell} (${rangeAddr}). ${result.cellsWritten} cells written.`,
       stderr: "",
       exitCode: 0,
     };
@@ -274,13 +281,13 @@ const sheetToCsv: Command = defineCommand("sheet-to-csv", async (args, ctx) => {
         ? " (truncated, more rows available)"
         : "";
       return {
-        stdout: `Exported ${result.rowCount} rows × ${result.columnCount} columns from "${result.sheetName}" to ${outFile}${moreNote}`,
+        stdout: `Exported ${result.rowCount} rows x ${result.columnCount} columns from "${result.sheetName}" to ${outFile}${moreNote}`,
         stderr: "",
         exitCode: 0,
       };
     }
 
-    // No file → stdout (pipeable)
+    // No file ? stdout (pipeable)
     return {
       stdout: result.csv,
       stderr: "",
@@ -341,39 +348,21 @@ const pdfToText: CustomCommand = {
       }
 
       const [filePath, outFile] = args;
+      const span = startPerfSpan("pdf_to_text_ms");
 
       try {
         const { data } = await resolveVfsPath(ctx, filePath);
-        await import("pdfjs-dist/build/pdf.worker.mjs");
-        const pdfjsLib = await import("pdfjs-dist");
-
-        const doc = await pdfjsLib.getDocument({
-          data,
-          useWorkerFetch: false,
-          isEvalSupported: false,
-          useSystemFonts: true,
-        }).promise;
-        const pages: string[] = [];
-
-        for (let i = 1; i <= doc.numPages; i++) {
-          const page = await doc.getPage(i);
-          const content = await page.getTextContent();
-          const text = content.items
-            .filter((item) => "str" in item)
-            .map((item) => (item as { str: string }).str)
-            .join(" ");
-          if (text.trim()) pages.push(text);
-        }
-
-        const fullText = pages.join("\n\n");
-        await writeVfsOutput(ctx, outFile, fullText);
+        const result = await extractPdfTextInWorker(data);
+        await writeVfsOutput(ctx, outFile, result.text);
+        span.end();
 
         return {
-          stdout: `Extracted text from ${doc.numPages} page(s) to ${outFile} (${fullText.length} chars)`,
+          stdout: `Extracted text from ${result.pageCount} page(s) to ${outFile} (${result.text.length} chars)`,
           stderr: "",
           exitCode: 0,
         };
       } catch (error) {
+        span.cancel();
         const msg = error instanceof Error ? error.message : String(error);
         return { stdout: "", stderr: msg, exitCode: 1 };
       }
@@ -427,28 +416,37 @@ const pdfToImages: CustomCommand = {
         };
       }
 
+      const span = startPerfSpan("pdf_to_images_ms");
+
       try {
         const { data } = await resolveVfsPath(ctx, filePath);
-        await import("pdfjs-dist/build/pdf.worker.mjs");
-        const pdfjsLib = await import("pdfjs-dist");
-
-        const doc = await pdfjsLib.getDocument({
+        const requestedPages = pagesArg
+          ? [
+              ...parsePageRanges(
+                pagesArg.split("=")[1],
+                Number.MAX_SAFE_INTEGER,
+              ),
+            ].sort((a, b) => a - b)
+          : null;
+        const { pageCount, images } = await renderPdfImagesInWorker(
           data,
-          useWorkerFetch: false,
-          isEvalSupported: false,
-          useSystemFonts: true,
-        }).promise;
+          scale,
+          requestedPages,
+        );
 
-        const selectedPages = pagesArg
-          ? parsePageRanges(pagesArg.split("=")[1], doc.numPages)
-          : new Set(Array.from({ length: doc.numPages }, (_, i) => i + 1));
-
-        if (selectedPages.size === 0) {
-          return {
-            stdout: "",
-            stderr: "No valid pages in selection",
-            exitCode: 1,
-          };
+        if (pagesArg) {
+          const selectedPages = parsePageRanges(
+            pagesArg.split("=")[1],
+            pageCount,
+          );
+          if (selectedPages.size === 0) {
+            span.cancel();
+            return {
+              stdout: "",
+              stderr: "No valid pages in selection",
+              exitCode: 1,
+            };
+          }
         }
 
         const resolvedDir = outDir.startsWith("/")
@@ -461,49 +459,22 @@ const pdfToImages: CustomCommand = {
         }
 
         const outputs: string[] = [];
-        const sortedPages = [...selectedPages].sort((a, b) => a - b);
-
-        for (const pageNum of sortedPages) {
-          const page = await doc.getPage(pageNum);
-          const viewport = page.getViewport({ scale });
-
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
-          const canvasCtx = canvas.getContext("2d");
-          if (!canvasCtx) throw new Error("Failed to create canvas 2D context");
-
-          await page.render({ canvasContext: canvasCtx, canvas, viewport })
-            .promise;
-
-          const pngData = await new Promise<Uint8Array>((resolve, reject) => {
-            canvas.toBlob((blob) => {
-              if (!blob) return reject(new Error("Canvas toBlob failed"));
-              const reader = new FileReader();
-              reader.onload = () =>
-                resolve(new Uint8Array(reader.result as ArrayBuffer));
-              reader.onerror = () => reject(new Error("FileReader failed"));
-              reader.readAsArrayBuffer(blob);
-            }, "image/png");
-          });
-
-          const pagePath = `${resolvedDir}/page-${pageNum}.png`;
-          await ctx.fs.writeFile(pagePath, pngData);
+        for (const image of images) {
+          const pagePath = `${resolvedDir}/page-${image.pageNumber}.png`;
+          await ctx.fs.writeFile(pagePath, new Uint8Array(image.data));
           outputs.push(
-            `page-${pageNum}.png (${Math.round(pngData.length / 1024)}KB, ${canvas.width}×${canvas.height})`,
+            `page-${image.pageNumber}.png (${Math.round(image.data.byteLength / 1024)}KB, ${image.width}x${image.height})`,
           );
-
-          // Help GC
-          canvas.width = 0;
-          canvas.height = 0;
         }
 
+        span.end();
         return {
-          stdout: `Converted ${outputs.length} page(s) from ${doc.numPages} total to ${outDir}/:\n${outputs.map((o) => `  ${o}`).join("\n")}`,
+          stdout: `Converted ${outputs.length} page(s) from ${pageCount} total to ${outDir}/:\n${outputs.map((o) => `  ${o}`).join("\n")}`,
           stderr: "",
           exitCode: 0,
         };
       } catch (error) {
+        span.cancel();
         const msg = error instanceof Error ? error.message : String(error);
         return { stdout: "", stderr: msg, exitCode: 1 };
       }
@@ -524,22 +495,21 @@ const docxToText: CustomCommand = {
       }
 
       const [filePath, outFile] = args;
+      const span = startPerfSpan("docx_to_text_ms");
 
       try {
         const { data } = await resolveVfsPath(ctx, filePath);
-        const mammoth = await import("mammoth");
-        const result = await mammoth.extractRawText({
-          arrayBuffer: data.buffer as ArrayBuffer,
-        });
-
-        await writeVfsOutput(ctx, outFile, result.value);
+        const result = await extractDocxTextInWorker(data);
+        await writeVfsOutput(ctx, outFile, result.text);
+        span.end();
 
         return {
-          stdout: `Extracted text from DOCX to ${outFile} (${result.value.length} chars)`,
+          stdout: `Extracted text from DOCX to ${outFile} (${result.text.length} chars)`,
           stderr: "",
           exitCode: 0,
         };
       } catch (error) {
+        span.cancel();
         const msg = error instanceof Error ? error.message : String(error);
         return { stdout: "", stderr: msg, exitCode: 1 };
       }
@@ -560,88 +530,63 @@ const xlsxToCsv: CustomCommand = {
       }
 
       const [filePath, outFile, sheetArg] = args;
+      const span = startPerfSpan("xlsx_to_csv_ms");
 
       try {
         const { data } = await resolveVfsPath(ctx, filePath);
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.read(data, { type: "array" });
+        const result = await convertWorkbookToCsvInWorker(data, sheetArg);
 
-        // Specific sheet requested
         if (sheetArg) {
-          let sheetName: string;
-          if (workbook.SheetNames.includes(sheetArg)) {
-            sheetName = sheetArg;
-          } else {
-            const idx = Number.parseInt(sheetArg, 10);
-            if (
-              !Number.isNaN(idx) &&
-              idx >= 0 &&
-              idx < workbook.SheetNames.length
-            ) {
-              sheetName = workbook.SheetNames[idx];
-            } else {
-              return {
-                stdout: "",
-                stderr: `Sheet not found: ${sheetArg}. Available: ${workbook.SheetNames.join(", ")}`,
-                exitCode: 1,
-              };
-            }
-          }
-
-          const sheet = workbook.Sheets[sheetName];
-          if (!sheet) {
+          const output = result.outputs[0];
+          if (!output) {
+            span.cancel();
             return {
               stdout: "",
-              stderr: `Sheet "${sheetName}" not found`,
+              stderr: `Sheet not found: ${sheetArg}`,
               exitCode: 1,
             };
           }
 
-          const csv = XLSX.utils.sheet_to_csv(sheet);
-          await writeVfsOutput(ctx, outFile, csv);
-
+          await writeVfsOutput(ctx, outFile, output.csv);
+          span.end();
           return {
-            stdout: `Converted sheet "${sheetName}" → ${outFile}`,
+            stdout: `Converted sheet "${output.sheetName}" -> ${outFile}`,
             stderr: "",
             exitCode: 0,
           };
         }
 
-        // No sheet specified: export all
-        const names = workbook.SheetNames;
-
-        if (names.length === 1) {
-          const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[names[0]]);
-          await writeVfsOutput(ctx, outFile, csv);
+        if (result.outputs.length === 1) {
+          const output = result.outputs[0];
+          await writeVfsOutput(ctx, outFile, output.csv);
+          span.end();
           return {
-            stdout: `Converted sheet "${names[0]}" → ${outFile}`,
+            stdout: `Converted sheet "${output.sheetName}" -> ${outFile}`,
             stderr: "",
             exitCode: 0,
           };
         }
 
-        // Multiple sheets: <base>.<sheetName>.csv
         const dotIdx = outFile.lastIndexOf(".");
         const base = dotIdx > 0 ? outFile.substring(0, dotIdx) : outFile;
         const ext = dotIdx > 0 ? outFile.substring(dotIdx) : ".csv";
         const outputs: string[] = [];
 
-        for (const name of names) {
-          const sheet = workbook.Sheets[name];
-          if (!sheet) continue;
-          const csv = XLSX.utils.sheet_to_csv(sheet);
-          const safeName = name.replace(/[/\\?*[\]]/g, "_");
+        for (const output of result.outputs) {
+          const safeName = output.sheetName.replace(/[/\\?*[\]]/g, "_");
           const path = `${base}.${safeName}${ext}`;
-          await writeVfsOutput(ctx, path, csv);
-          outputs.push(`  "${name}" → ${path}`);
+          await writeVfsOutput(ctx, path, output.csv);
+          outputs.push(`  "${output.sheetName}" -> ${path}`);
         }
 
+        span.end();
         return {
-          stdout: `Converted ${names.length} sheets:\n${outputs.join("\n")}`,
+          stdout: `Converted ${result.outputs.length} sheets:\n${outputs.join("\n")}`,
           stderr: "",
           exitCode: 0,
         };
       } catch (error) {
+        span.cancel();
         const msg = error instanceof Error ? error.message : String(error);
         return { stdout: "", stderr: msg, exitCode: 1 };
       }
@@ -805,7 +750,7 @@ const imageToSheet: Command = defineCommand(
       return {
         stdout: "",
         stderr:
-          "Maximum dimensions: 200×200. Use smaller values for Excel pixel art.",
+          "Maximum dimensions: 200x200. Use smaller values for Excel pixel art.",
         exitCode: 1,
       };
     }
@@ -858,7 +803,7 @@ const imageToSheet: Command = defineCommand(
 
       return {
         stdout:
-          `Painted ${targetW}×${targetH} pixel art (${targetW * targetH} cells, ${uniqueColors.size} colors) ` +
+          `Painted ${targetW}x${targetH} pixel art (${targetW * targetH} cells, ${uniqueColors.size} colors) ` +
           `from ${filePath} into sheet ${sheetId} at ${upperStartCell} (cell size: ${cellSize}pt)`,
         stderr: "",
         exitCode: 0,
@@ -1018,7 +963,7 @@ const webFetchCmd: Command = defineCommand("web-fetch", async (args, ctx) => {
 
       await writeVfsOutput(ctx, outFile, output);
       return {
-        stdout: `Fetched text → ${outFile} (${result.text.length} chars, ${result.contentType})`,
+        stdout: `Fetched text ? ${outFile} (${result.text.length} chars, ${result.contentType})`,
         stderr: "",
         exitCode: 0,
       };
@@ -1043,7 +988,7 @@ const webFetchCmd: Command = defineCommand("web-fetch", async (args, ctx) => {
         : `${result.data.length}B`;
 
     return {
-      stdout: `Downloaded → ${outFile} (${size}, ${result.contentType || "unknown type"})`,
+      stdout: `Downloaded ? ${outFile} (${size}, ${result.contentType || "unknown type"})`,
       stderr: "",
       exitCode: 0,
     };
@@ -1066,3 +1011,9 @@ export function getCustomCommands(): CustomCommand[] {
     webFetchCmd,
   ];
 }
+
+// Test helpers for csv-utils.test.ts
+export const __test__ = {
+  buildRangeAddress,
+  parseCsv,
+};

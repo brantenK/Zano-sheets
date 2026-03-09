@@ -1,3 +1,4 @@
+import type { Api, Model } from "@mariozechner/pi-ai";
 import {
   Check,
   ChevronDown,
@@ -12,6 +13,10 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  loadModelsForProvider,
+  preloadProviderCatalog,
+} from "../../../lib/chat/provider-catalog";
 import {
   clearIntegrationTelemetry,
   loadIntegrationTelemetry,
@@ -28,7 +33,13 @@ import {
   saveOAuthCredentials,
 } from "../../../lib/oauth";
 import {
+  clearPerfTelemetry,
+  exportPerfTelemetry,
+  getPerfSummary,
+} from "../../../lib/perf-telemetry";
+import {
   API_TYPES,
+  type BashMode,
   clearAllApiKeys,
   evaluateProviderConfig,
   loadApiKey,
@@ -38,6 +49,11 @@ import {
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "../../../lib/provider-config";
+import {
+  exportStartupTelemetry,
+  getStartupTelemetrySummary,
+  markSettingsOpen,
+} from "../../../lib/startup-telemetry";
 import {
   clearWebConfig,
   loadWebConfig,
@@ -136,7 +152,7 @@ function SkillsSection() {
             style={{ borderRadius: "var(--chat-radius)" }}
           >
             <FolderUp size={12} />
-            {installing ? "Installing…" : "Add Folder"}
+            {installing ? "Installing..." : "Add Folder"}
           </button>
           <button
             type="button"
@@ -149,7 +165,7 @@ function SkillsSection() {
             style={{ borderRadius: "var(--chat-radius)" }}
           >
             <Plus size={12} />
-            {installing ? "Installing…" : "Add File"}
+            {installing ? "Installing..." : "Add File"}
           </button>
         </div>
         <p className="text-[10px] text-(--chat-text-muted)">
@@ -180,13 +196,7 @@ function SkillsSection() {
 }
 
 export function SettingsPanel() {
-  const {
-    state,
-    setProviderConfig,
-    availableProviders,
-    getModelsForProvider,
-    toggleReviewMode,
-  } = useChat();
+  const { state, setProviderConfig } = useChat();
   const { showToast } = useToast();
 
   // ALWAYS use provider from context - never local state
@@ -196,6 +206,7 @@ export function SettingsPanel() {
   const useProxyValue = state.providerConfig?.useProxy ?? true;
   const proxyUrlValue = state.providerConfig?.proxyUrl || "";
   const thinkingValue = state.providerConfig?.thinking || "none";
+  const bashModeValue = state.providerConfig?.bashMode || "on-demand";
   const apiTypeValue = state.providerConfig?.apiType || "openai-completions";
   const customBaseUrlValue = state.providerConfig?.customBaseUrl || "";
   const authMethodValue = state.providerConfig?.authMethod || "apikey";
@@ -209,6 +220,8 @@ export function SettingsPanel() {
     "idle",
   );
   const [showKey, setShowKey] = useState(false);
+  const [availableProviders, setAvailableProviders] = useState<string[]>([]);
+  const [models, setModels] = useState<Model<Api>[]>([]);
   const apiKeyRef = useRef(apiKey);
   const apiKeyChangedRef = useRef(apiKeyChanged);
   const providerRef = useRef(provider);
@@ -221,7 +234,7 @@ export function SettingsPanel() {
     null,
   );
   // Kill-switch: when true the unmount flush is suppressed because a full
-  // reset just wiped storage — nothing should be written back.
+  // reset just wiped storage ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â nothing should be written back.
   const didResetRef = useRef(false);
 
   useEffect(() => {
@@ -245,7 +258,7 @@ export function SettingsPanel() {
   // with stale refs before the ref-sync effect updates them).
   useEffect(() => {
     return () => {
-      // Kill-switch: a full reset just happened — do NOT write anything back.
+      // Kill-switch: a full reset just happened ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â do NOT write anything back.
       if (didResetRef.current) return;
       if (authMethodRef.current !== "apikey") return;
       if (!apiKeyChangedRef.current) return;
@@ -297,9 +310,18 @@ export function SettingsPanel() {
   const [integrationTelemetry, setIntegrationTelemetry] = useState(
     loadIntegrationTelemetry,
   );
+  const [perfSummary, setPerfSummary] = useState(getPerfSummary);
+  const [startupSummary, setStartupSummary] = useState(
+    getStartupTelemetrySummary,
+  );
 
   useEffect(() => {
-    const refresh = () => setIntegrationTelemetry(loadIntegrationTelemetry());
+    markSettingsOpen();
+    const refresh = () => {
+      setIntegrationTelemetry(loadIntegrationTelemetry());
+      setPerfSummary(getPerfSummary());
+      setStartupSummary(getStartupTelemetrySummary());
+    };
     refresh();
     const intervalId = window.setInterval(refresh, 4000);
     return () => window.clearInterval(intervalId);
@@ -344,6 +366,7 @@ export function SettingsPanel() {
         useProxy: boolean;
         proxyUrl: string;
         thinking: ThinkingLevel;
+        bashMode: BashMode;
         apiType: string;
         customBaseUrl: string;
         authMethod: "apikey" | "oauth";
@@ -351,7 +374,7 @@ export function SettingsPanel() {
     ) => {
       const p = updates.provider ?? provider;
       // Use the provided API key OR the current in-memory key (via ref).
-      // NEVER fall back to loadApiKey(p) here — that reads from storage
+      // NEVER fall back to loadApiKey(p) here ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â that reads from storage
       // and can re-inject a stale/cleared key when non-key settings change.
       const k =
         updates.apiKey !== undefined ? updates.apiKey : apiKeyRef.current;
@@ -359,6 +382,7 @@ export function SettingsPanel() {
       const up = updates.useProxy ?? useProxyValue;
       const pu = updates.proxyUrl ?? proxyUrlValue;
       const t = updates.thinking ?? thinkingValue;
+      const bm = updates.bashMode ?? bashModeValue;
       const at = updates.apiType ?? apiTypeValue;
       const cb = updates.customBaseUrl ?? customBaseUrlValue;
       const am = updates.authMethod ?? authMethodValue;
@@ -374,6 +398,7 @@ export function SettingsPanel() {
         proxyUrl: pu,
         thinking: t,
         followMode,
+        bashMode: bm,
         apiType: at,
         customBaseUrl: cb,
         authMethod: am,
@@ -394,6 +419,7 @@ export function SettingsPanel() {
       useProxyValue,
       proxyUrlValue,
       thinkingValue,
+      bashModeValue,
       apiTypeValue,
       customBaseUrlValue,
       authMethodValue,
@@ -423,14 +449,120 @@ export function SettingsPanel() {
     return () => window.clearTimeout(timeoutId);
   }, [apiKey, apiKeyChanged, authMethodValue, provider]);
 
-  const models = provider && !isCustom ? getModelsForProvider(provider) : [];
+  useEffect(() => {
+    let cancelled = false;
+
+    preloadProviderCatalog()
+      .then((providers) => {
+        if (!cancelled) {
+          setAvailableProviders(providers);
+        }
+      })
+      .catch((err) => {
+        console.error("[Settings] Failed to load provider catalog:", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!provider || isCustom) {
+      setModels([]);
+      return;
+    }
+
+    let cancelled = false;
+    loadModelsForProvider(provider)
+      .then((providerModels) => {
+        if (!cancelled) {
+          setModels(providerModels);
+        }
+      })
+      .catch((err) => {
+        console.error(`[Settings] Failed to load models for ${provider}:`, err);
+        if (!cancelled) {
+          setModels([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCustom, provider]);
 
   const hasOAuth = provider in OAUTH_PROVIDERS;
+  const oauthCredentials =
+    authMethodValue === "oauth" && provider
+      ? loadOAuthCredentials(provider)
+      : null;
+  const hasStoredOAuthCredentials = Boolean(oauthCredentials);
+  const oauthReconnectRequired =
+    hasOAuth && authMethod === "oauth" && !hasStoredOAuthCredentials;
   const searchProviders = listSearchProviders();
   const fetchProviders = listFetchProviders();
   const needsBraveKey = webSearchProvider === "brave";
   const needsSerperKey = webSearchProvider === "serper";
   const needsExaKey = webSearchProvider === "exa" || webFetchProvider === "exa";
+  const perfMetricRows = [
+    ["taskpane_interactive_ms", "Taskpane interactive"],
+    ["settings_open_ms", "Settings open"],
+    ["first_prompt_send_ms", "First prompt send"],
+    ["first_streamed_token_ms", "First streamed token"],
+    ["bash_command_ms", "Bash command"],
+    ["pdf_to_text_ms", "PDF to text"],
+    ["pdf_to_images_ms", "PDF to images"],
+    ["docx_to_text_ms", "DOCX to text"],
+    ["xlsx_to_csv_ms", "XLSX to CSV"],
+  ] as const;
+
+  useEffect(() => {
+    if (!provider || authMethodValue !== "oauth" || !hasOAuth) {
+      if (oauthFlow.step !== "idle") {
+        setOauthFlow({ step: "idle" });
+      }
+      return;
+    }
+
+    if (oauthFlow.step === "awaiting-code" || oauthFlow.step === "exchanging") {
+      return;
+    }
+
+    if (oauthCredentials) {
+      if (oauthFlow.step !== "connected") {
+        setOauthFlow({ step: "connected" });
+      }
+      if (state.providerConfig?.apiKey !== oauthCredentials.access) {
+        updateAndSync({ authMethod: "oauth", apiKey: oauthCredentials.access });
+      }
+      return;
+    }
+
+    if (state.providerConfig?.apiKey) {
+      updateAndSync({ authMethod: "oauth", apiKey: "" });
+    }
+
+    if (oauthFlow.step === "connected") {
+      setOauthFlow({
+        step: "error",
+        message: "OAuth session expired. Reconnect this provider in Settings.",
+      });
+      return;
+    }
+
+    if (oauthFlow.step !== "error") {
+      setOauthFlow({ step: "idle" });
+    }
+  }, [
+    authMethodValue,
+    hasOAuth,
+    oauthCredentials,
+    oauthFlow.step,
+    provider,
+    state.providerConfig?.apiKey,
+    updateAndSync,
+  ]);
 
   const updateWebSettings = useCallback(
     (
@@ -467,57 +599,72 @@ export function SettingsPanel() {
     [webSearchProvider, webFetchProvider, braveApiKey, serperApiKey, exaApiKey],
   );
 
-  const handleProviderChange = (newProvider: string) => {
+  const handleProviderChange = async (newProvider: string) => {
+    setOauthCodeInput("");
+    setSaveStatus("idle");
+
     if (newProvider === "custom") {
+      setModels([]);
+      setOauthFlow({ step: "idle" });
       updateAndSync({
         provider: newProvider,
         model: "",
         authMethod: "apikey",
         apiKey: loadApiKey(newProvider),
       });
-    } else {
-      const providerModels = newProvider
-        ? getModelsForProvider(newProvider)
-        : [];
-      const currentModelStillValid = providerModels.some((m) => m.id === model);
-      const nextModel = currentModelStillValid
-        ? model
-        : providerModels[0]?.id || "";
-      const keepOAuth =
-        newProvider in OAUTH_PROVIDERS ? authMethodValue : "apikey";
-      const oauthCreds =
-        keepOAuth === "oauth" ? loadOAuthCredentials(newProvider) : null;
-      updateAndSync({
-        provider: newProvider,
-        model: nextModel,
-        authMethod: keepOAuth,
-        apiKey: oauthCreds?.access || loadApiKey(newProvider),
-      });
+      return;
+    }
 
-      if (keepOAuth === "oauth") {
-        setOauthFlow(oauthCreds ? { step: "connected" } : { step: "idle" });
-      }
-    }
-    // Reset OAuth flow when switching away from an OAuth-capable provider
-    if (!(newProvider in OAUTH_PROVIDERS)) {
-      setOauthFlow({ step: "idle" });
-    }
+    const providerModels = newProvider
+      ? await loadModelsForProvider(newProvider)
+      : [];
+    const currentModelStillValid = providerModels.some((m) => m.id === model);
+    const nextModel = currentModelStillValid
+      ? model
+      : providerModels[0]?.id || "";
+    const nextAuthMethod =
+      newProvider in OAUTH_PROVIDERS ? authMethodValue : "apikey";
+    const nextOauthCreds =
+      nextAuthMethod === "oauth" ? loadOAuthCredentials(newProvider) : null;
+    const nextApiKey =
+      nextAuthMethod === "oauth"
+        ? (nextOauthCreds?.access ?? "")
+        : loadApiKey(newProvider);
+
+    setModels(providerModels);
+    setOauthFlow(
+      nextAuthMethod === "oauth"
+        ? nextOauthCreds
+          ? { step: "connected" }
+          : { step: "idle" }
+        : { step: "idle" },
+    );
+    updateAndSync({
+      provider: newProvider,
+      model: nextModel,
+      authMethod: nextAuthMethod,
+      apiKey: nextApiKey,
+    });
   };
 
   const handleAuthMethodChange = (newMethod: "apikey" | "oauth") => {
+    setOauthCodeInput("");
+
     if (newMethod === "oauth") {
       const creds = loadOAuthCredentials(provider);
       if (creds) {
         setOauthFlow({ step: "connected" });
         updateAndSync({ authMethod: "oauth", apiKey: creds.access });
       } else {
-        updateAndSync({ authMethod: "oauth" });
+        updateAndSync({ authMethod: "oauth", apiKey: "" });
         setOauthFlow({ step: "idle" });
       }
-    } else {
-      setOauthFlow({ step: "idle" });
-      updateAndSync({ authMethod: "apikey", apiKey: "" });
+      return;
     }
+
+    const savedApiKey = loadApiKey(provider);
+    setOauthFlow({ step: "idle" });
+    updateAndSync({ authMethod: "apikey", apiKey: savedApiKey });
   };
 
   const persistApiKey = useCallback(
@@ -561,7 +708,7 @@ export function SettingsPanel() {
       return;
     }
 
-    const providerModels = getModelsForProvider(provider);
+    const providerModels = models;
     if (providerModels.length === 0) {
       showToast("error", `No models found for ${provider}.`, 4000);
       return;
@@ -579,7 +726,7 @@ export function SettingsPanel() {
 
     updateAndSync({ model: fallbackModel });
     showToast("success", `Updated model to ${fallbackModel}.`, 4000);
-  }, [getModelsForProvider, isCustom, provider, showToast, updateAndSync]);
+  }, [isCustom, models, provider, showToast, updateAndSync]);
 
   const startOAuthLogin = async () => {
     try {
@@ -589,7 +736,12 @@ export function SettingsPanel() {
         challenge,
         verifier,
       );
-      window.open(url, "_blank");
+      const popup = window.open(url, "_blank", "noopener,noreferrer");
+      if (!popup) {
+        throw new Error(
+          "Browser blocked the login popup. Allow popups for this add-in and try again.",
+        );
+      }
       setOauthFlow({ step: "awaiting-code", verifier, oauthState });
     } catch (err) {
       setOauthFlow({
@@ -613,7 +765,12 @@ export function SettingsPanel() {
         useProxy: useProxyValue,
         proxyUrl: proxyUrlValue,
       });
-      saveOAuthCredentials(provider, creds);
+      const saveResult = saveOAuthCredentials(provider, creds);
+      if (!saveResult.ok) {
+        throw new Error(
+          saveResult.error || "Failed to save OAuth credentials.",
+        );
+      }
       setOauthFlow({ step: "connected" });
       setOauthCodeInput("");
       updateAndSync({ apiKey: creds.access, authMethod: "oauth" });
@@ -626,9 +783,24 @@ export function SettingsPanel() {
   };
 
   const logoutOAuth = () => {
-    removeOAuthCredentials(provider);
+    const removeResult = removeOAuthCredentials(provider);
+    if (!removeResult.ok) {
+      setOauthFlow({
+        step: "error",
+        message: removeResult.error || "Failed to remove OAuth credentials.",
+      });
+      showToast(
+        "error",
+        removeResult.error || "Failed to remove OAuth credentials.",
+        6000,
+      );
+      return;
+    }
+
+    const savedApiKey = loadApiKey(provider);
+    setOauthCodeInput("");
     setOauthFlow({ step: "idle" });
-    updateAndSync({ authMethod: "apikey", apiKey: "" });
+    updateAndSync({ authMethod: "apikey", apiKey: savedApiKey });
   };
 
   const isConfigured = state.providerConfig !== null;
@@ -669,7 +841,7 @@ export function SettingsPanel() {
                   {providerLabel(p)}
                 </option>
               ))}
-              <option disabled>──────────</option>
+              <option disabled>----------</option>
               <option value="custom">Custom Endpoint</option>
             </select>
           </label>
@@ -741,17 +913,10 @@ export function SettingsPanel() {
                   {/* DeepSeek models */}
                   {apiType === "deepseek" && (
                     <>
-                      <option value="deepseek-chat">deepseek-chat (V3)</option>
+                      <option value="deepseek-chat">deepseek-chat</option>
                       <option value="deepseek-reasoner">
-                        deepseek-reasoner (R1)
+                        deepseek-reasoner
                       </option>
-                      <option value="deepseek-chat-v3-0324">
-                        deepseek-chat-v3-0324
-                      </option>
-                      <option value="deepseek-chat-v3.1">
-                        deepseek-chat-v3.1
-                      </option>
-                      <option value="deepseek-r1">deepseek-r1</option>
                       <option value="deepseek-r1-0528">deepseek-r1-0528</option>
                       <option value="deepseek-v3.1-terminus">
                         deepseek-v3.1-terminus
@@ -780,7 +945,7 @@ export function SettingsPanel() {
                       rel="noopener noreferrer"
                       className="text-(--chat-accent) hover:underline"
                     >
-                      Get API Key →
+                      Get API Key
                     </a>
                   </p>
                 )}
@@ -792,15 +957,14 @@ export function SettingsPanel() {
                       rel="noopener noreferrer"
                       className="text-(--chat-accent) hover:underline"
                     >
-                      Get API Key →
+                      Get API Key
                     </a>
                   </p>
                 )}
               </label>
             </>
           )}
-
-          {/* Model dropdown — built-in providers only */}
+          {/* Model dropdown for built-in providers only */}
           {!isCustom && provider && (
             <label className="block">
               <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
@@ -826,7 +990,7 @@ export function SettingsPanel() {
             </label>
           )}
 
-          {/* Auth method toggle — providers with OAuth support */}
+          {/* Auth method toggle ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â providers with OAuth support */}
           {hasOAuth && (
             <div>
               <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
@@ -861,7 +1025,8 @@ export function SettingsPanel() {
             </div>
           )}
 
-          {/* OAuth flow — providers with OAuth support */}
+          {/* OAuth flow ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â providers with OAuth support */}
+          {/* OAuth flow for providers with OAuth support */}
           {hasOAuth && authMethod === "oauth" && (
             <div className="space-y-2">
               {oauthFlow.step === "idle" && (
@@ -882,7 +1047,7 @@ export function SettingsPanel() {
                 <div className="space-y-2">
                   <p className="text-[10px] text-(--chat-text-muted)">
                     {provider === "openai-codex"
-                      ? "Complete login in the opened tab. The page will redirect to localhost and fail — copy the full URL from your browser's address bar and paste it below:"
+                      ? "Complete login in the opened tab. The page will redirect to localhost and fail. Copy the full URL from your browser's address bar and paste it below:"
                       : "Authorize in the opened tab, then paste the code shown on the redirect page:"}
                   </p>
                   <div className="flex gap-1">
@@ -924,7 +1089,7 @@ export function SettingsPanel() {
                   className="px-3 py-2.5 text-xs text-(--chat-text-muted) bg-(--chat-input-bg) border border-(--chat-border)"
                   style={{ borderRadius: "var(--chat-radius)" }}
                 >
-                  Exchanging authorization code…
+                  Exchanging authorization code...
                 </div>
               )}
 
@@ -970,7 +1135,7 @@ export function SettingsPanel() {
             </div>
           )}
 
-          {/* API Key input — hidden when using OAuth */}
+          {/* API Key input ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â hidden when using OAuth */}
           {showApiKeyInput && (
             <div className="space-y-2">
               <label className="block">
@@ -992,7 +1157,7 @@ export function SettingsPanel() {
                         provider &&
                         authMethodValue === "apikey"
                       ) {
-                        // Clear immediately — no debounce needed, nothing pending
+                        // Clear immediately ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â no debounce needed, nothing pending
                         saveApiKey(provider, "");
                         updateAndSync({ apiKey: "" });
                         // apiKeyChanged stays false
@@ -1034,7 +1199,7 @@ export function SettingsPanel() {
                 )}
                 {apiKeyChanged && (
                   <p className="text-[10px] text-(--chat-accent) mt-1">
-                    ✏️ API key modified - auto-saves when you leave this field
+                    API key modified - auto-saves when you leave this field
                   </p>
                 )}
               </label>
@@ -1067,7 +1232,7 @@ export function SettingsPanel() {
                 ) : saveStatus === "saved" && !apiKeyChanged ? (
                   <>
                     <Check size={12} />
-                    Saved ✓
+                    Saved
                   </>
                 ) : (
                   <>
@@ -1128,33 +1293,6 @@ export function SettingsPanel() {
             </label>
           )}
 
-          {/* Review Mode */}
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-xs text-(--chat-text-secondary)">
-                Review Mode
-              </span>
-              <p className="text-[10px] text-(--chat-text-muted) mt-0.5">
-                Approve all AI changes before they happen
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={toggleReviewMode}
-              className={`
-                w-10 h-5 rounded-full transition-colors relative
-                ${state.reviewMode ? "bg-(--chat-accent)" : "bg-(--chat-border)"}
-              `}
-            >
-              <span
-                className={`
-                  absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform
-                  ${state.reviewMode ? "left-5" : "left-0.5"}
-                `}
-              />
-            </button>
-          </div>
-
           {/* Thinking Level */}
           <div>
             <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
@@ -1182,6 +1320,47 @@ export function SettingsPanel() {
             </div>
             <p className="text-[10px] text-(--chat-text-muted) mt-1">
               Extended thinking for supported models
+            </p>
+          </div>
+          <div>
+            <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
+              Bash Usage
+            </span>
+            <div className="grid grid-cols-2 gap-1">
+              {[
+                {
+                  value: "on-demand" as const,
+                  label: "On Demand",
+                  hint: "Only when you explicitly ask for shell-style work",
+                },
+                {
+                  value: "auto" as const,
+                  label: "Automatic",
+                  hint: "Model may use bash whenever it helps",
+                },
+              ].map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => updateAndSync({ bashMode: mode.value })}
+                  className={`
+                    px-3 py-2 text-xs border text-left transition-colors
+                    ${
+                      bashModeValue === mode.value
+                        ? "bg-(--chat-accent) border-(--chat-accent) text-white"
+                        : "bg-(--chat-input-bg) border-(--chat-border) text-(--chat-text-secondary) hover:border-(--chat-border-active)"
+                    }
+                  `}
+                  style={{ borderRadius: "var(--chat-radius)" }}
+                >
+                  <div>{mode.label}</div>
+                  <div className="mt-1 text-[10px] opacity-80">{mode.hint}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-(--chat-text-muted) mt-1">
+              Safer default for performance. Bash stays available, but the model
+              will avoid it unless needed.
             </p>
           </div>
 
@@ -1408,6 +1587,13 @@ export function SettingsPanel() {
                 Fix now
               </button>
             </>
+          ) : oauthReconnectRequired ? (
+            <>
+              <TriangleAlert size={12} className="text-(--chat-warning)" />
+              <span className="text-(--chat-warning)">
+                OAuth session expired. Reconnect this provider in Settings.
+              </span>
+            </>
           ) : isConfigured ? (
             <>
               <Check size={12} className="text-(--chat-success)" />
@@ -1428,12 +1614,11 @@ export function SettingsPanel() {
         {providerHealth.warnings.length > 0 && (
           <div className="mt-2 space-y-1 text-[10px] text-(--chat-warning)">
             {providerHealth.warnings.map((warning) => (
-              <div key={warning}>• {warning}</div>
+              <div key={warning}>- {warning}</div>
             ))}
           </div>
         )}
       </div>
-
       {/* Integration Diagnostics */}
       <div className="border-t border-(--chat-border) pt-4">
         <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted) mb-2">
@@ -1445,6 +1630,9 @@ export function SettingsPanel() {
           <div>
             OAuth refresh retries:{" "}
             {integrationTelemetry.counters.oauth_refresh_retry}
+          </div>
+          <div>
+            OAuth credentials stored: {hasStoredOAuthCredentials ? "yes" : "no"}
           </div>
           <div>
             Transient retries: {integrationTelemetry.counters.transient_retry}
@@ -1466,17 +1654,80 @@ export function SettingsPanel() {
           <div className="text-(--chat-text-muted) break-all">
             Status counts: {JSON.stringify(integrationTelemetry.statusCounts)}
           </div>
+          <div className="pt-2 text-(--chat-text-primary)">
+            Performance telemetry
+          </div>
+          {perfMetricRows.map(([metricKey, label]) => {
+            const stats = perfSummary.metrics[metricKey];
+            return (
+              <div key={metricKey}>
+                {label}: count {stats.count}, avg {stats.avg}ms, p95 {stats.p95}
+                ms, last {stats.last}ms
+              </div>
+            );
+          })}
+          <div className="text-(--chat-text-muted)">
+            Startup phases: {JSON.stringify(startupSummary.phases)}
+          </div>
+          {oauthReconnectRequired && (
+            <div className="text-(--chat-warning)">
+              Reconnect required: stored OAuth credentials are missing for the
+              selected provider.
+            </div>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            clearIntegrationTelemetry();
-            setIntegrationTelemetry(loadIntegrationTelemetry());
-          }}
-          className="mt-3 px-3 py-1.5 text-xs border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors"
-        >
-          Reset diagnostics counters
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              clearIntegrationTelemetry();
+              setIntegrationTelemetry(loadIntegrationTelemetry());
+            }}
+            className="px-3 py-1.5 text-xs border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors"
+          >
+            Reset integration counters
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearPerfTelemetry();
+              setPerfSummary(getPerfSummary());
+              setStartupSummary(getStartupTelemetrySummary());
+            }}
+            className="px-3 py-1.5 text-xs border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors"
+          >
+            Reset perf counters
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const snapshot = JSON.stringify(
+                {
+                  integrationTelemetry,
+                  perfTelemetry: JSON.parse(exportPerfTelemetry()),
+                  startupTelemetry: JSON.parse(exportStartupTelemetry()),
+                },
+                null,
+                2,
+              );
+              navigator.clipboard
+                .writeText(snapshot)
+                .then(() => {
+                  showToast("success", "Diagnostics snapshot copied", 2500);
+                })
+                .catch(() => {
+                  showToast(
+                    "error",
+                    "Failed to copy diagnostics snapshot",
+                    4000,
+                  );
+                });
+            }}
+            className="px-3 py-1.5 text-xs border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors"
+          >
+            Copy diagnostics snapshot
+          </button>
+        </div>
       </div>
 
       {/* Skills */}
@@ -1529,6 +1780,7 @@ export function SettingsPanel() {
               useProxy: true,
               proxyUrl: "",
               thinking: "none",
+              bashMode: "on-demand",
               apiType: "openai-completions",
               customBaseUrl: "",
             });

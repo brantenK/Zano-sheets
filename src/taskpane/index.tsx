@@ -3,6 +3,13 @@ import { createRoot } from "react-dom/client";
 import App from "./components/app";
 import "./index.css";
 
+// Initialize startup telemetry as early as possible
+// Import dynamically to avoid blocking the main bundle
+import { initStartupTelemetry } from "../lib/startup-telemetry";
+
+// Initialize startup timing
+initStartupTelemetry();
+
 Sentry.init({
   dsn: "https://a91fd4e21fea892bf4b448ef09c321d2@o4510685409181696.ingest.de.sentry.io/4510963341983824",
   environment: import.meta.env.MODE,

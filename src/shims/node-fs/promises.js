@@ -5,6 +5,11 @@ export const mkdir = async () => {};
 export const readdir = async () => [];
 export const stat = async () => ({});
 export const unlink = async () => {};
+export const open = async () => ({
+  close: async () => {},
+  read: async () => ({ bytesRead: 0, buffer: new Uint8Array() }),
+  stat: async () => ({}),
+});
 
 export default {
   readFile,
@@ -13,4 +18,5 @@ export default {
   readdir,
   stat,
   unlink,
+  open,
 };

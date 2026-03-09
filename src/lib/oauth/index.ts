@@ -4,6 +4,13 @@ export interface OAuthCredentials {
   expires: number;
 }
 
+export interface OAuthStorageWriteResult {
+  ok: boolean;
+  error?: string;
+}
+
+import { handleError } from "../silent-error-handler";
+
 export type OAuthFlowState =
   | { step: "idle" }
   | { step: "awaiting-code"; verifier: string; oauthState?: string }
@@ -56,13 +63,39 @@ function loadOAuthStore(): Record<string, OAuthCredentials> {
   return legacyStore;
 }
 
+function validateOAuthCredentials(
+  creds: Partial<OAuthCredentials>,
+  context: string,
+): OAuthCredentials {
+  if (!creds.access || typeof creds.access !== "string") {
+    throw new Error(`${context}: missing access token`);
+  }
+  if (!creds.refresh || typeof creds.refresh !== "string") {
+    throw new Error(`${context}: missing refresh token`);
+  }
+  if (typeof creds.expires !== "number" || !Number.isFinite(creds.expires)) {
+    throw new Error(`${context}: invalid expiry timestamp`);
+  }
+  return {
+    access: creds.access,
+    refresh: creds.refresh,
+    expires: creds.expires,
+  };
+}
+
 export function loadOAuthCredentials(
   provider: string,
 ): OAuthCredentials | null {
   try {
     const store = loadOAuthStore();
-    return store[provider] || null;
-  } catch {
+    const credentials = store[provider];
+    if (!credentials) {
+      return null;
+    }
+
+    return validateOAuthCredentials(credentials, "OAuth credential load");
+  } catch (error) {
+    handleError(error, "OAuth credential load", { logToTelemetry: true });
     return null;
   }
 }
@@ -70,23 +103,35 @@ export function loadOAuthCredentials(
 export function saveOAuthCredentials(
   provider: string,
   creds: OAuthCredentials,
-) {
+): OAuthStorageWriteResult {
   try {
     const store = loadOAuthStore();
-    store[provider] = creds;
+    store[provider] = validateOAuthCredentials(creds, "OAuth credential save");
     localStorage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    /* ignore */
+    return { ok: true };
+  } catch (error) {
+    handleError(error, "OAuth credential save", { logToTelemetry: true });
+    return {
+      ok: false,
+      error: "Failed to save OAuth credentials in browser storage.",
+    };
   }
 }
 
-export function removeOAuthCredentials(provider: string) {
+export function removeOAuthCredentials(
+  provider: string,
+): OAuthStorageWriteResult {
   try {
     const store = loadOAuthStore();
     delete store[provider];
     localStorage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    /* ignore */
+    return { ok: true };
+  } catch (error) {
+    handleError(error, "OAuth credential remove", { logToTelemetry: true });
+    return {
+      ok: false,
+      error: "Failed to remove OAuth credentials from browser storage.",
+    };
   }
 }
 
@@ -94,8 +139,8 @@ export function clearAllOAuthCredentials() {
   try {
     localStorage.removeItem(OAUTH_STORAGE_KEY);
     localStorage.removeItem(LEGACY_OAUTH_STORAGE_KEY);
-  } catch {
-    /* ignore */
+  } catch (error) {
+    handleError(error, "OAuth clear all credentials");
   }
 }
 
@@ -129,17 +174,16 @@ function createRandomState(): string {
 }
 
 // --- Provider Constants ---
+// These are public OAuth client IDs, not secrets
 
-const ANTHROPIC_CLIENT_ID = atob(
-  "OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl",
-);
+const ANTHROPIC_CLIENT_ID = "8d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const ANTHROPIC_AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
 const ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
 const ANTHROPIC_REDIRECT_URI =
   "https://console.anthropic.com/oauth/code/callback";
 const ANTHROPIC_SCOPES = "org:create_api_key user:profile user:inference";
 
-const OPENAI_CODEX_CLIENT_ID = atob("YXBwX0VNb2FtRUVaNzNmMENrWGFYcDdocmFubg==");
+const OPENAI_CODEX_CLIENT_ID = "app_E_MOaEEZ73f0CKaXp7whran";
 const OPENAI_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 const OPENAI_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
@@ -150,7 +194,7 @@ const OPENAI_CODEX_SCOPE = "openid profile email offline_access";
 export function buildAuthorizationUrl(
   provider: string,
   challenge: string,
-  verifier: string,
+  _verifier: string,
 ): { url: string; oauthState?: string } {
   if (provider === "openai-codex") {
     const oauthState = createRandomState();
@@ -168,6 +212,8 @@ export function buildAuthorizationUrl(
     });
     return { url: `${OPENAI_CODEX_AUTHORIZE_URL}?${params}`, oauthState };
   }
+  // Anthropic - use random state for CSRF protection (separate from PKCE verifier)
+  const oauthState = createRandomState();
   const params = new URLSearchParams({
     code: "true",
     client_id: ANTHROPIC_CLIENT_ID,
@@ -176,9 +222,9 @@ export function buildAuthorizationUrl(
     scope: ANTHROPIC_SCOPES,
     code_challenge: challenge,
     code_challenge_method: "S256",
-    state: verifier,
+    state: oauthState,
   });
-  return { url: `${ANTHROPIC_AUTHORIZE_URL}?${params}` };
+  return { url: `${ANTHROPIC_AUTHORIZE_URL}?${params}`, oauthState };
 }
 
 // --- Input Parsing ---
@@ -248,11 +294,14 @@ async function refreshAnthropicOAuth(
     refresh_token: string;
     expires_in: number;
   };
-  return {
-    refresh: data.refresh_token,
-    access: data.access_token,
-    expires: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
-  };
+  return validateOAuthCredentials(
+    {
+      refresh: data.refresh_token,
+      access: data.access_token,
+      expires: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
+    },
+    "Anthropic token refresh",
+  );
 }
 
 async function refreshOpenAICodexOAuth(
@@ -284,11 +333,14 @@ async function refreshOpenAICodexOAuth(
   ) {
     throw new Error("OpenAI Codex token refresh: missing fields in response");
   }
-  return {
-    refresh: data.refresh_token,
-    access: data.access_token,
-    expires: Date.now() + data.expires_in * 1000,
-  };
+  return validateOAuthCredentials(
+    {
+      refresh: data.refresh_token,
+      access: data.access_token,
+      expires: Date.now() + data.expires_in * 1000,
+    },
+    "OpenAI Codex token refresh",
+  );
 }
 
 export async function refreshOAuthToken(
@@ -301,6 +353,63 @@ export async function refreshOAuthToken(
     return refreshOpenAICodexOAuth(refreshToken, proxyUrl, useProxy);
   }
   return refreshAnthropicOAuth(refreshToken, proxyUrl, useProxy);
+}
+
+/**
+ * Check if OAuth credentials are expired or will expire soon (within 5 minutes).
+ */
+export function isTokenExpired(
+  creds: OAuthCredentials,
+  bufferMs: number = 5 * 60 * 1000,
+): boolean {
+  const now = Date.now();
+  return creds.expires <= now + bufferMs;
+}
+
+/**
+ * Get valid OAuth credentials, automatically refreshing if needed.
+ * Returns null if credentials don't exist or if refresh fails.
+ *
+ * @param provider - The OAuth provider (e.g., "anthropic", "openai-codex")
+ * @param proxyUrl - Optional CORS proxy URL
+ * @param useProxy - Whether to use the CORS proxy
+ * @returns Valid OAuth credentials, or null if unavailable
+ */
+export async function getValidOAuthCredentials(
+  provider: string,
+  proxyUrl: string = "",
+  useProxy: boolean = false,
+): Promise<OAuthCredentials | null> {
+  const creds = loadOAuthCredentials(provider);
+  if (!creds) {
+    return null;
+  }
+
+  // Check if token is expired or will expire soon
+  if (isTokenExpired(creds)) {
+    try {
+      const refreshed = await refreshOAuthToken(
+        provider,
+        creds.refresh,
+        proxyUrl,
+        useProxy,
+      );
+      const saveResult = saveOAuthCredentials(provider, refreshed);
+      if (!saveResult.ok) {
+        handleError(
+          new Error(saveResult.error || "Failed to save refreshed token"),
+          "OAuth token save after refresh",
+        );
+      }
+      return refreshed;
+    } catch (error) {
+      handleError(error, "OAuth token refresh failed");
+      // Return null to signal that credentials are invalid and user needs to re-auth
+      return null;
+    }
+  }
+
+  return creds;
 }
 
 // --- Token Exchange ---
@@ -351,11 +460,14 @@ export async function exchangeOAuthCode(params: {
     ) {
       throw new Error("Token response missing required fields");
     }
-    return {
-      refresh: data.refresh_token,
-      access: data.access_token,
-      expires: Date.now() + data.expires_in * 1000,
-    };
+    return validateOAuthCredentials(
+      {
+        refresh: data.refresh_token,
+        access: data.access_token,
+        expires: Date.now() + data.expires_in * 1000,
+      },
+      "OpenAI Codex token exchange",
+    );
   }
 
   // Anthropic
@@ -381,9 +493,12 @@ export async function exchangeOAuthCode(params: {
     refresh_token: string;
     expires_in: number;
   };
-  return {
-    refresh: data.refresh_token,
-    access: data.access_token,
-    expires: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
-  };
+  return validateOAuthCredentials(
+    {
+      refresh: data.refresh_token,
+      access: data.access_token,
+      expires: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
+    },
+    "Anthropic token exchange",
+  );
 }

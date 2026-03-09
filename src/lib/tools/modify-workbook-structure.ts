@@ -4,6 +4,7 @@ import {
   bustWorkbookMetadataCache,
   modifyWorkbookStructure,
 } from "../excel/api";
+import { getFriendlyError } from "./error-mapper";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 export const modifyWorkbookStructureTool = defineTool({
@@ -59,11 +60,11 @@ export const modifyWorkbookStructureTool = defineTool({
       bustWorkbookMetadataCache();
       return toolSuccess(result);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Unknown error modifying workbook";
-      return toolError(message);
+      const friendlyMessage = getFriendlyError(error, {
+        toolName: "modify_workbook_structure",
+        params,
+      });
+      return toolError(friendlyMessage);
     }
   },
 });

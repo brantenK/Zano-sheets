@@ -1,4 +1,4 @@
-import { Paperclip, Send, Shield, ShieldAlert, Square, X } from "lucide-react";
+import { Paperclip, Send, Square, X } from "lucide-react";
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -20,14 +20,7 @@ const MIN_ROWS = 1;
 const MAX_ROWS = 2;
 
 export function ChatInput() {
-  const {
-    sendMessage,
-    state,
-    abort,
-    processFiles,
-    removeUpload,
-    toggleReviewMode,
-  } = useChat();
+  const { sendMessage, state, abort, processFiles, removeUpload } = useChat();
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -72,12 +65,27 @@ export function ChatInput() {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      // Ctrl+Enter or Cmd+Enter: Submit message
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         handleSubmit();
+        return;
       }
+
+      // Escape: Stop generation
+      if (e.key === "Escape" && state.isStreaming) {
+        e.preventDefault();
+        abort();
+        return;
+      }
+
+      // Enter without shift: Submit (legacy behavior, can be changed)
+      // if (e.key === "Enter" && !e.shiftKey) {
+      //   e.preventDefault();
+      //   handleSubmit();
+      // }
     },
-    [handleSubmit],
+    [handleSubmit, state.isStreaming, abort],
   );
 
   const handleFileSelect = useCallback(
@@ -159,7 +167,7 @@ export function ChatInput() {
           onKeyDown={handleKeyDown}
           placeholder={
             state.providerConfig
-              ? "Type a message..."
+              ? "Type a message... (Ctrl+Enter to send, Esc to stop)"
               : "Configure API key in settings"
           }
           disabled={!state.providerConfig}
@@ -193,23 +201,6 @@ export function ChatInput() {
                 size={13}
                 className={isUploading ? "animate-pulse" : ""}
               />
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleReviewMode}
-              className={`flex items-center justify-center w-6 h-5 transition-colors ${state.reviewMode ? "text-(--chat-accent)" : "text-(--chat-text-muted) hover:text-(--chat-text-primary)"}`}
-              title={
-                state.reviewMode
-                  ? "Review Mode Active: You must approve changes"
-                  : "Review Mode Inactive: AI edits automatically"
-              }
-            >
-              {state.reviewMode ? (
-                <ShieldAlert size={13} />
-              ) : (
-                <Shield size={13} />
-              )}
             </button>
           </div>
 

@@ -13,7 +13,9 @@ import {
 } from "lucide-react";
 import {
   type DragEvent,
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -23,9 +25,23 @@ import { getSessionMessageCount } from "../../../lib/storage";
 import { ToastProvider } from "../toast/toast-context";
 import { ChatProvider, useChat } from "./chat-context";
 import { ChatInput } from "./chat-input";
-import { MessageList } from "./message-list";
-import { SettingsPanel } from "./settings-panel";
+
 import type { ChatTab } from "./types";
+
+const LazyMessageList = lazy(async () => {
+  const module = await import("./message-list");
+  return { default: module.MessageList };
+});
+
+const LazyOnboardingTour = lazy(async () => {
+  const module = await import("./onboarding-tour");
+  return { default: module.OnboardingTour };
+});
+
+const LazySettingsPanel = lazy(async () => {
+  const module = await import("./settings-panel");
+  return { default: module.SettingsPanel };
+});
 
 type Theme = "light" | "dark";
 const THEME_KEY = "zanosheets-theme";
@@ -74,6 +90,50 @@ function formatTokens(n: number): string {
 function formatCost(n: number): string {
   if (n < 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(3)}`;
+}
+
+export function getNextDragStateOnEnter(
+  counter: number,
+  hasFiles: boolean,
+): {
+  counter: number;
+  isDragOver: boolean;
+} {
+  const nextCounter = Math.max(0, counter) + 1;
+  return {
+    counter: nextCounter,
+    isDragOver: hasFiles || counter > 0,
+  };
+}
+
+export function getNextDragStateOnLeave(counter: number): {
+  counter: number;
+  isDragOver: boolean;
+} {
+  const nextCounter = Math.max(0, counter - 1);
+  return {
+    counter: nextCounter,
+    isDragOver: nextCounter > 0,
+  };
+}
+
+function ChatViewSkeleton() {
+  return (
+    <div className="flex-1 px-4 py-6">
+      <div className="h-full rounded-sm border border-(--chat-border) bg-(--chat-bg-secondary)/40" />
+    </div>
+  );
+}
+
+function SettingsSkeleton() {
+  return (
+    <div
+      className="flex flex-1 items-center justify-center px-6 text-xs uppercase tracking-[0.2em] text-(--chat-text-muted)"
+      style={{ fontFamily: "var(--chat-font-mono)" }}
+    >
+      Loading settings...
+    </div>
+  );
 }
 
 function StatsBar() {
@@ -380,26 +440,102 @@ function ChatHeader({
 function ChatContent() {
   const [activeTab, setActiveTab] = useState<ChatTab>("chat");
   const { theme, toggle } = useTheme();
-  const { processFiles } = useChat();
+  const { processFiles, clearMessages, abort, newSession, state } = useChat();
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check if onboarding should be shown
+  useEffect(() => {
+    try {
+      const ONBOARDING_KEY = "zanosheets-onboarding-complete";
+      const ONBOARDING_VERSION = "1";
+      const saved = localStorage.getItem(ONBOARDING_KEY);
+      if (saved !== ONBOARDING_VERSION) {
+        setShowOnboarding(true);
+      }
+    } catch {
+      // If storage fails, show onboarding
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input/textarea
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        // Only handle Escape when typing
+        if (e.key === "Escape" && state.isStreaming) {
+          e.preventDefault();
+          abort();
+        }
+        return;
+      }
+
+      // Ctrl+K: Clear chat
+      if (e.ctrlKey && e.key === "k") {
+        e.preventDefault();
+        if (state.messages.length > 0) {
+          clearMessages();
+        }
+        return;
+      }
+
+      // Ctrl+/: Toggle settings
+      if (e.ctrlKey && e.key === "/") {
+        e.preventDefault();
+        setActiveTab((tab) => (tab === "chat" ? "settings" : "chat"));
+        return;
+      }
+
+      // Escape: Stop generation
+      if (e.key === "Escape" && state.isStreaming) {
+        e.preventDefault();
+        abort();
+        return;
+      }
+
+      // Ctrl+Shift+N: New chat
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        void newSession();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    state.isStreaming,
+    state.messages.length,
+    clearMessages,
+    abort,
+    newSession,
+  ]);
 
   const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounterRef.current++;
-    if (e.dataTransfer.types.includes("Files")) {
-      setIsDragOver(true);
-    }
+    const nextState = getNextDragStateOnEnter(
+      dragCounterRef.current,
+      e.dataTransfer.types.includes("Files"),
+    );
+    dragCounterRef.current = nextState.counter;
+    setIsDragOver(nextState.isDragOver);
   }, []);
 
   const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounterRef.current--;
-    if (dragCounterRef.current === 0) {
-      setIsDragOver(false);
-    }
+    const nextState = getNextDragStateOnLeave(dragCounterRef.current);
+    dragCounterRef.current = nextState.counter;
+    setIsDragOver(nextState.isDragOver);
   }, []);
 
   const handleDragOver = useCallback((e: DragEvent) => {
@@ -421,6 +557,14 @@ function ChatContent() {
     [processFiles],
   );
 
+  const handleOpenSettings = useCallback(() => {
+    setActiveTab("settings");
+  }, []);
+
+  const handleOnboardingComplete = useCallback(() => {
+    setShowOnboarding(false);
+  }, []);
+
   return (
     <div
       role="application"
@@ -439,12 +583,16 @@ function ChatContent() {
       />
       {activeTab === "chat" ? (
         <>
-          <MessageList />
+          <Suspense fallback={<ChatViewSkeleton />}>
+            <LazyMessageList />
+          </Suspense>
           <ChatInput />
           <StatsBar />
         </>
       ) : (
-        <SettingsPanel />
+        <Suspense fallback={<SettingsSkeleton />}>
+          <LazySettingsPanel />
+        </Suspense>
       )}
 
       {/* Drag-and-drop overlay */}
@@ -457,6 +605,16 @@ function ChatContent() {
             </span>
           </div>
         </div>
+      )}
+
+      {/* Onboarding tour */}
+      {showOnboarding && (
+        <Suspense fallback={null}>
+          <LazyOnboardingTour
+            onComplete={handleOnboardingComplete}
+            onOpenSettings={handleOpenSettings}
+          />
+        </Suspense>
       )}
     </div>
   );

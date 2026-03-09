@@ -98,36 +98,8 @@ function parseDirtyRanges(result: string | undefined): DirtyRange[] | null {
   return null;
 }
 
-// --- Global Tool Approval Gate ---
-let globalConfirmToolCall: ((id: string, confirmed: boolean) => void) | null =
-  null;
-// Tracks whether review mode is currently active — kept in sync with
-// reviewModeRef so checkToolApproval can short-circuit without React state.
-let reviewModeActive = false;
-const pendingApprovals = new Map<string, (confirmed: boolean) => void>();
-
-/**
- * Resolve or reject every pending approval promise.
- * Pass confirmed=true to auto-approve (e.g. review mode toggled off mid-stream).
- * Pass confirmed=false to reject (e.g. stream ended with tools still waiting).
- */
-function drainPendingApprovals(confirmed: boolean): void {
-  for (const [id, cb] of pendingApprovals) {
-    cb(confirmed);
-    pendingApprovals.delete(id);
-  }
-}
-
-export async function checkToolApproval(toolCallId: string): Promise<void> {
-  // Short-circuit when review mode is inactive — no gate needed.
-  if (!globalConfirmToolCall || !reviewModeActive) return;
-
-  return new Promise((resolve, reject) => {
-    pendingApprovals.set(toolCallId, (confirmed) => {
-      if (confirmed) resolve();
-      else reject(new Error("Action declined by user."));
-    });
-  });
+export async function checkToolApproval(_toolCallId: string): Promise<void> {
+  return;
 }
 
 function isToolResultErrorText(result: string | undefined): boolean {
@@ -284,7 +256,6 @@ interface ChatState {
   uploads: UploadedFile[];
   isUploading: boolean;
   skills: SkillMeta[];
-  reviewMode: boolean;
 }
 
 const INITIAL_STATS: SessionStats = { ...deriveStats([]), contextWindow: 0 };
@@ -302,8 +273,6 @@ interface ChatContextValue {
   deleteCurrentSession: () => Promise<void>;
   getSheetName: (sheetId: number) => string | undefined;
   toggleFollowMode: () => void;
-  toggleReviewMode: () => void;
-  confirmToolCall: (toolCallId: string, confirmed: boolean) => void;
   processFiles: (files: File[]) => Promise<void>;
   removeUpload: (name: string) => Promise<void>;
   installSkill: (files: File[]) => Promise<void>;
@@ -334,7 +303,6 @@ const EMPTY_CHAT_STATE: ChatState = {
   uploads: [],
   isUploading: false,
   skills: [],
-  reviewMode: false,
 };
 
 const FALLBACK_CHAT_CONTEXT: ChatContextValue = {
@@ -350,8 +318,6 @@ const FALLBACK_CHAT_CONTEXT: ChatContextValue = {
   deleteCurrentSession: async () => {},
   getSheetName: () => undefined,
   toggleFollowMode: () => {},
-  toggleReviewMode: () => {},
-  confirmToolCall: () => {},
   processFiles: async () => {},
   removeUpload: async () => {},
   installSkill: async () => {},
@@ -452,7 +418,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       uploads: [],
       isUploading: false,
       skills: [],
-      reviewMode: false,
     };
   });
 
@@ -464,8 +429,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const sessionLoadedRef = useRef(false);
   const currentSessionIdRef = useRef<string | null>(null);
   const followModeRef = useRef(state.providerConfig?.followMode ?? true);
-  const reviewModeRef = useRef(false);
   const skillsRef = useRef<SkillMeta[]>([]);
+  const streamingTimeoutRef = useRef<number | null>(null);
 
   const availableProviders = getProviders();
 
@@ -574,8 +539,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               const parts = [...msg.parts];
               const part = parts[partIdx];
               if (part.type === "toolCall") {
-                const status = reviewModeRef.current ? "pending" : "running";
-                parts[partIdx] = { ...part, status };
+                // Always use "running" status — no pending/awaiting approval
+                parts[partIdx] = { ...part, status: "running" as const };
                 messages[i] = { ...msg, parts };
               }
               break;
@@ -700,6 +665,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         break;
       }
       case "agent_end": {
+        // Clear streaming timeout
+        if (streamingTimeoutRef.current !== null) {
+          window.clearTimeout(streamingTimeoutRef.current);
+          streamingTimeoutRef.current = null;
+        }
         isStreamingRef.current = false;
         setState((prev) => ({ ...prev, isStreaming: false }));
         streamingMessageIdRef.current = null;
@@ -876,6 +846,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   const abort = useCallback(() => {
+    // Clear streaming timeout if set
+    if (streamingTimeoutRef.current !== null) {
+      window.clearTimeout(streamingTimeoutRef.current);
+      streamingTimeoutRef.current = null;
+    }
     agentRef.current?.abort();
     isStreamingRef.current = false;
     setState((prev) => ({ ...prev, isStreaming: false }));
@@ -958,8 +933,31 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           promptContent = `<attachments>\n${paths}\n</attachments>\n\n${promptContent}`;
         }
 
+        // Set up streaming timeout (5 minutes)
+        const STREAMING_TIMEOUT_MS = 5 * 60 * 1000;
+        streamingTimeoutRef.current = window.setTimeout(() => {
+          console.error("[Chat] Streaming timeout reached, aborting agent");
+          recordIntegrationTelemetry("stream_stall_timeout", undefined);
+          // Abort the agent if it's still running
+          if (isStreamingRef.current) {
+            agentRef.current?.abort();
+            isStreamingRef.current = false;
+            streamingTimeoutRef.current = null;
+            setState((prev) => ({
+              ...prev,
+              isStreaming: false,
+              error: "Request timed out after 5 minutes. Please try again.",
+            }));
+          }
+        }, STREAMING_TIMEOUT_MS);
+
         await agent.prompt(promptContent);
       } catch (err) {
+        // Clear streaming timeout on error
+        if (streamingTimeoutRef.current !== null) {
+          window.clearTimeout(streamingTimeoutRef.current);
+          streamingTimeoutRef.current = null;
+        }
         console.error("[Chat] sendMessage error:", err);
         recordIntegrationTelemetry("send_message_error", getErrorStatus(err));
         isStreamingRef.current = false;
@@ -1114,9 +1112,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     ) {
       const sessionId = currentSessionIdRef.current;
       const agentMessages = agentRef.current?.state.messages ?? [];
-      // Reject any approvals left hanging after an Abort so the promises
-      // don't leak across sessions.
-      drainPendingApprovals(false);
       // Snapshot VFS first (returns native Promise), then save to IndexedDB.
       (async () => {
         try {
@@ -1354,65 +1349,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const toggleReviewMode = useCallback(() => {
-    setState((prev) => {
-      const next = !prev.reviewMode;
-      reviewModeRef.current = next;
-      reviewModeActive = next;
-      // When turning review mode OFF, auto-approve any tools that were
-      // suspended mid-stream waiting for user confirmation.
-      if (!next) {
-        drainPendingApprovals(true);
-      }
-      return { ...prev, reviewMode: next };
-    });
-  }, []);
-
-  useEffect(() => {
-    globalConfirmToolCall = (id, confirmed) => {
-      const cb = pendingApprovals.get(id);
-      if (cb) {
-        cb(confirmed);
-        pendingApprovals.delete(id);
-
-        // If confirmed, update UI to running
-        if (confirmed) {
-          setState((prev) => {
-            const messages = [...prev.messages];
-            for (let i = messages.length - 1; i >= 0; i--) {
-              const msg = messages[i];
-              const partIdx = msg.parts.findIndex(
-                (p) => p.type === "toolCall" && p.id === id,
-              );
-              if (partIdx !== -1) {
-                const parts = [...msg.parts];
-                const part = parts[partIdx];
-                if (part.type === "toolCall") {
-                  parts[partIdx] = { ...part, status: "running" };
-                  messages[i] = { ...msg, parts };
-                }
-                break;
-              }
-            }
-            return { ...prev, messages };
-          });
-        }
-      }
-    };
-    return () => {
-      globalConfirmToolCall = null;
-    };
-  }, []);
-
-  const confirmToolCall = useCallback(
-    (toolCallId: string, confirmed: boolean) => {
-      if (globalConfirmToolCall) {
-        globalConfirmToolCall(toolCallId, confirmed);
-      }
-    },
-    [],
-  );
-
   return (
     <ChatContext.Provider
       value={{
@@ -1428,8 +1364,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         deleteCurrentSession,
         getSheetName,
         toggleFollowMode,
-        toggleReviewMode,
-        confirmToolCall,
         processFiles,
         removeUpload,
         installSkill,

@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+﻿import { Type } from "@sinclair/typebox";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
@@ -54,11 +54,9 @@ export const readTool = defineTool({
       const path = params.path;
       let fullPath = path.startsWith("/") ? path : `/home/user/uploads/${path}`;
 
-      // Check if file exists in the primary location
       if (!(await fileExists(fullPath))) {
-        // Fallback: If it's a relative path, check if it exists in any skill directory
         if (!path.startsWith("/")) {
-          const vfs = getVfs();
+          const vfs = await getVfs();
           const allPaths = vfs.getAllPaths();
           const skillMatches = allPaths.filter(
             (p) => p.startsWith("/home/skills/") && p.endsWith(`/${path}`),
@@ -71,7 +69,6 @@ export const readTool = defineTool({
               `Ambiguous path: '${path}' exists in multiple skills: ${skillMatches.join(", ")}. Please use an absolute path.`,
             );
           } else {
-            // No skill match either, list uploads to help
             const uploads = await listUploads();
             const hint =
               uploads.length > 0
@@ -88,7 +85,6 @@ export const readTool = defineTool({
       const { isImage, mimeType } = getFileType(filename);
 
       if (isImage) {
-        // Return image as base64 for vision models
         const data = await readFileBuffer(fullPath);
         const base64 = toBase64(data);
         return {
@@ -103,15 +99,12 @@ export const readTool = defineTool({
         };
       }
 
-      // For text files, apply truncation
       const data = await readFileBuffer(fullPath);
       const decoder = new TextDecoder();
       const text = decoder.decode(data);
 
       const allLines = text.split("\n");
       const totalFileLines = allLines.length;
-
-      // Apply offset (1-indexed to 0-indexed)
       const startLine = params.offset ? Math.max(0, params.offset - 1) : 0;
       const startLineDisplay = startLine + 1;
 
@@ -121,7 +114,6 @@ export const readTool = defineTool({
         );
       }
 
-      // Apply limit param if specified
       let selectedContent: string;
       let userLimitedLines: number | undefined;
 
@@ -133,7 +125,6 @@ export const readTool = defineTool({
         selectedContent = allLines.slice(startLine).join("\n");
       }
 
-      // Apply truncation
       const truncation = truncateHead(selectedContent);
       let outputText: string;
 

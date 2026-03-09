@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
 import { modifyObject } from "../excel/api";
+import { getFriendlyError } from "./error-mapper";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 const PivotFieldSchema = Type.Object({
@@ -89,11 +90,11 @@ export const modifyObjectTool = defineTool({
       const result = await modifyObject(params);
       return toolSuccess(result);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Unknown error modifying object";
-      return toolError(message);
+      const friendlyMessage = getFriendlyError(error, {
+        toolName: "modify_object",
+        params,
+      });
+      return toolError(friendlyMessage);
     }
   },
 });

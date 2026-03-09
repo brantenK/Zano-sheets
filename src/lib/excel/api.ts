@@ -154,17 +154,22 @@ export async function resilientSync(
 ): Promise<void> {
   const maxRetries = 5;
   const delayMs = 500;
-  let lastError: any;
+  let lastError: unknown;
 
   for (let i = 0; i < maxRetries; i++) {
     try {
       await context.sync();
       return;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
+      const errorMessage =
+        error instanceof Error ? error.message.toLowerCase() : "";
       const isBusy =
-        error.code === "HostIsBusy" ||
-        (error.message && error.message.toLowerCase().includes("host is busy"));
+        (typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          (error as { code?: unknown }).code === "HostIsBusy") ||
+        errorMessage.includes("host is busy");
 
       if (isBusy) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -859,7 +864,8 @@ export async function setCellRange(
           for (const area of batchRange.areas.items) {
             // Office.js accepts a plain string at runtime even though the type
             // declares numberFormat as any[][]. Cast to satisfy the compiler.
-            area.numberFormat = s.numberFormat as unknown as any[][];
+            area.numberFormat =
+              s.numberFormat as unknown as Excel.Range["numberFormat"];
           }
         }
 
@@ -1525,10 +1531,9 @@ export async function modifyObject(params: {
           if (!id) throw new Error("Chart update requires id");
           const chart = charts.getItem(id);
           if (properties?.chartType) {
-            chart.chartType =
-              (Excel.ChartType[
-                properties.chartType as keyof typeof Excel.ChartType
-              ] ?? properties.chartType) as Excel.ChartType;
+            chart.chartType = (Excel.ChartType[
+              properties.chartType as keyof typeof Excel.ChartType
+            ] ?? properties.chartType) as Excel.ChartType;
           }
           if (properties?.source) {
             const sourceRange = sheet.getRange(properties.source);

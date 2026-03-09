@@ -1,6 +1,4 @@
-import { Readability } from "@mozilla/readability";
-import TurndownService from "turndown";
-import type { FetchProvider, FetchResult, WebContext } from "./types";
+﻿import type { FetchProvider, FetchResult, WebContext } from "./types";
 
 function isHtmlContentType(contentType: string): boolean {
   const ct = contentType.split(";")[0].trim().toLowerCase();
@@ -24,37 +22,89 @@ function getApiKey(
   return context.apiKeys?.[providerId];
 }
 
+export function buildProxyRequestUrl(
+  proxyUrl: string,
+  targetUrl: string,
+): string {
+  const trimmedProxy = proxyUrl.trim().replace(/\/+$/, "");
+  if (!trimmedProxy) {
+    throw new Error("Proxy URL is empty.");
+  }
+
+  if (trimmedProxy.includes("{encodedApiUrl}")) {
+    return trimmedProxy
+      .split("{encodedApiUrl}")
+      .join(encodeURIComponent(targetUrl));
+  }
+
+  const hasUrlParam = /[?&]url=/.test(trimmedProxy);
+  if (hasUrlParam) {
+    return `${trimmedProxy}${encodeURIComponent(targetUrl)}`;
+  }
+
+  const separator = trimmedProxy.includes("?") ? "&" : "?";
+  return `${trimmedProxy}${separator}url=${encodeURIComponent(targetUrl)}`;
+}
+
 async function fetchWithProxy(
   url: string,
   proxyUrl?: string,
   init?: RequestInit,
 ): Promise<Response> {
-  // Use user-configured proxy first, then fallback to corsproxy.io, then direct fetch
-  const effectiveProxy = proxyUrl || "https://corsproxy.io";
+  // Try multiple proxy fallbacks for better reliability
+  const proxies = proxyUrl
+    ? [proxyUrl]
+    : ["https://api.allorigins.win/raw", "https://corsproxy.io"];
 
-  try {
-    return await fetch(
-      `${effectiveProxy}/?url=${encodeURIComponent(url)}`,
-      init,
-    );
-  } catch (err) {
-    if (proxyUrl) {
-      throw new Error(
-        `Configured CORS proxy fetch failed: ${err instanceof Error ? err.message : err}`,
-      );
-    }
-    // If fallback failed, try direct fetch as a last resort
+  let lastError: Error | undefined;
+
+  for (const proxy of proxies) {
     try {
-      return await fetch(url, init);
-    } catch {
-      throw new Error(
-        "Fetch blocked by CORS. Please configure a custom CORS proxy in Settings for better reliability.",
-      );
+      const proxyUrlFinal = buildProxyRequestUrl(proxy, url);
+
+      const response = await fetch(proxyUrlFinal, init);
+
+      // If we get a 403 or 429, try next proxy
+      if (response.status === 403 || response.status === 429) {
+        lastError = new Error(
+          `Proxy returned ${response.status}. Trying next proxy...`,
+        );
+        continue;
+      }
+
+      return response;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // If user configured a specific proxy and it failed, don't try fallbacks
+      if (proxyUrl) {
+        throw new Error(
+          `Configured CORS proxy fetch failed: ${lastError.message}`,
+        );
+      }
+      // Otherwise try next proxy
     }
+  }
+
+  // All proxies failed, try direct fetch as last resort
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error(
+      `All CORS proxies failed. Last error: ${lastError?.message ?? "Unknown"}. ` +
+        "Please configure a custom CORS proxy in Settings.",
+    );
   }
 }
 
-function extractContentFromHtml(url: string, html: string): FetchResult {
+async function extractContentFromHtml(
+  url: string,
+  html: string,
+): Promise<FetchResult> {
+  const [{ Readability }, { default: TurndownService }] = await Promise.all([
+    import("@mozilla/readability"),
+    import("turndown"),
+  ]);
+
   const doc = new DOMParser().parseFromString(html, "text/html");
   const base = doc.createElement("base");
   base.href = url;
@@ -84,7 +134,6 @@ function extractContentFromHtml(url: string, html: string): FetchResult {
     content = td.turndown(doc.body?.innerHTML ?? "").trim();
   }
 
-  // Safety Truncation: Max 100k characters to prevent context overflow
   const MAX_CHARS = 100000;
   if (content.length > MAX_CHARS) {
     content = `${content.slice(0, MAX_CHARS)}\n\n... [Content truncated due to length. Total: ${content.length} characters]`;
@@ -110,7 +159,7 @@ const basicFetchProvider: FetchProvider = {
     const contentType = resp.headers.get("content-type") ?? "";
 
     if (isHtmlContentType(contentType)) {
-      return extractContentFromHtml(url, await resp.text());
+      return await extractContentFromHtml(url, await resp.text());
     }
 
     if (isTextContentType(contentType)) {

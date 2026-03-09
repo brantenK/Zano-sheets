@@ -1,12 +1,14 @@
-import { Type } from "@sinclair/typebox";
+﻿import { Type } from "@sinclair/typebox";
 import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
+import { startPerfSpan } from "../perf-telemetry";
+import { markBashWorkflowStart } from "../startup-telemetry";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
   truncateTail,
 } from "../truncate";
-import { getBash, getVfs } from "../vfs";
+import { getBash, getVfs, syncBashState } from "../vfs";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 export const bashTool = defineTool({
@@ -36,11 +38,13 @@ export const bashTool = defineTool({
     ),
   }),
   execute: async (toolCallId, params) => {
+    const span = startPerfSpan("bash_command_ms");
     try {
       await checkToolApproval(toolCallId);
-      // SELF-POLICING: Block 'cat', 'tail', 'head' on large files to prevent data integrity errors
+      markBashWorkflowStart();
+
       const command = params.command.trim();
-      const largeFileLimit = 1 * 1024 * 1024; // 1MB
+      const largeFileLimit = 1 * 1024 * 1024;
 
       const restrictedCommands = ["cat", "tail", "head"];
       const parts = command.split(/\s+/);
@@ -49,7 +53,7 @@ export const bashTool = defineTool({
       if (restrictedCommands.includes(baseCmd)) {
         const filePath = parts.find((p) => p.includes("/") || p.includes("."));
         if (filePath) {
-          const vfs = getVfs();
+          const vfs = await getVfs();
           try {
             const absolutePath = filePath.startsWith("/")
               ? filePath
@@ -71,8 +75,9 @@ export const bashTool = defineTool({
         }
       }
 
-      const bash = getBash();
+      const bash = await getBash();
       const result = await bash.exec(params.command);
+      await syncBashState();
 
       let output = "";
 
@@ -116,6 +121,8 @@ export const bashTool = defineTool({
           ? error.message
           : "Unknown error executing bash command";
       return toolError(message);
+    } finally {
+      span.end();
     }
   },
 });

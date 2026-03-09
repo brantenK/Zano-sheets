@@ -9,6 +9,25 @@ export interface DirtyRange {
 }
 
 /**
+ * Parse dirty ranges from tool result JSON.
+ * Looks for _dirtyRanges array in the parsed JSON.
+ */
+export function parseDirtyRanges(
+  result: string | undefined,
+): DirtyRange[] | null {
+  if (!result) return null;
+  try {
+    const parsed = JSON.parse(result);
+    if (parsed._dirtyRanges && Array.isArray(parsed._dirtyRanges)) {
+      return parsed._dirtyRanges;
+    }
+  } catch {
+    // Not valid JSON or no dirty ranges
+  }
+  return null;
+}
+
+/**
  * Normalize and merge overlapping ranges (simple implementation).
  * For now, just deduplicates exact matches. A full implementation
  * would merge A1:B5 + A3:C10 into a bounding box.

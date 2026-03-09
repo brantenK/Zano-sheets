@@ -24,8 +24,8 @@ export const resizeRangeTool = defineTool({
           "Column range (A:D) or row range (1:5). Omit for entire sheet",
       }),
     ),
-    width: SizeSchema,   // type: 'points' = exact point size; 'standard' = Excel's standard column width units (~7px each)
-    height: SizeSchema,  // type: 'points' = exact point size; 'standard' = Excel's standard row height units
+    width: SizeSchema, // type: 'points' = exact point size; 'standard' = Excel's standard column width units (~7px each)
+    height: SizeSchema, // type: 'points' = exact point size; 'standard' = Excel's standard row height units
     explanation: Type.Optional(
       Type.String({
         description: "Brief explanation (max 50 chars)",

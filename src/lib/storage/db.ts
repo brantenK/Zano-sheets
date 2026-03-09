@@ -2,6 +2,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { UserMessage } from "@mariozechner/pi-ai";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import { stripEnrichment } from "../message-utils";
+import { handleError } from "../silent-error-handler";
 
 export interface ChatSession {
   id: string;
@@ -47,8 +48,30 @@ interface OpenExcelSchema extends DBSchema {
 }
 
 let dbPromise: Promise<IDBPDatabase<OpenExcelSchema>> | null = null;
+const vfsWriteQueue = new Map<string, Promise<void>>();
 const WORKBOOK_ID_KEY = "zanosheets-workbook-id";
 const LEGACY_WORKBOOK_ID_KEY = "openexcel-workbook-id";
+
+function enqueueVfsWrite(
+  sessionId: string,
+  operation: () => Promise<void>,
+): Promise<void> {
+  const previous = vfsWriteQueue.get(sessionId) ?? Promise.resolve();
+  const queued = previous
+    .catch((error) => {
+      handleError(error, "VFS write queue previous operation failed");
+    })
+    .then(operation);
+  vfsWriteQueue.set(sessionId, queued);
+
+  void queued.finally(() => {
+    if (vfsWriteQueue.get(sessionId) === queued) {
+      vfsWriteQueue.delete(sessionId);
+    }
+  });
+
+  return queued;
+}
 
 function getDb(): Promise<IDBPDatabase<OpenExcelSchema>> {
   if (!dbPromise) {
@@ -239,7 +262,9 @@ export async function getOrCreateCurrentSession(
   return createSession(workbookId);
 }
 
-async function evictOldSessionsIfNeeded(): Promise<void> {
+async function evictOldSessionsIfNeeded(
+  protectedSessionId?: string,
+): Promise<void> {
   if (!navigator.storage?.estimate) return;
 
   try {
@@ -263,6 +288,7 @@ async function evictOldSessionsIfNeeded(): Promise<void> {
     let evictedCount = 0;
     for (const session of allSessions) {
       if (evictedCount >= 5) break;
+      if (session.id === protectedSessionId) continue;
       if (session.lastVfsEviction) continue;
 
       const vfsKeys = await db
@@ -284,7 +310,7 @@ async function evictOldSessionsIfNeeded(): Promise<void> {
       }
     }
   } catch (err) {
-    console.error("[DB] Eviction failed:", err);
+    handleError(err, "DB VFS eviction failed");
   }
 }
 
@@ -293,25 +319,35 @@ export async function saveVfsFiles(
   sessionId: string,
   files: { path: string; data: Uint8Array }[],
 ): Promise<void> {
-  await evictOldSessionsIfNeeded();
+  return enqueueVfsWrite(sessionId, async () => {
+    await evictOldSessionsIfNeeded(sessionId);
 
-  const db = await getDb();
-  const tx = db.transaction("vfsFiles", "readwrite");
-  const store = tx.store;
-  const existing = await store.index("sessionId").getAllKeys(sessionId);
-  for (const key of existing) {
-    await store.delete(key);
-  }
-  for (const f of files) {
-    await store.add({
-      id: `${workbookId}:${sessionId}:${f.path}`,
-      workbookId,
-      sessionId,
-      path: f.path,
-      data: f.data,
-    });
-  }
-  await tx.done;
+    const db = await getDb();
+    const tx = db.transaction(["vfsFiles", "sessions"], "readwrite");
+    const vfsStore = tx.objectStore("vfsFiles");
+    const sessionsStore = tx.objectStore("sessions");
+    const existing = await vfsStore.index("sessionId").getAllKeys(sessionId);
+    for (const key of existing) {
+      await vfsStore.delete(key);
+    }
+    for (const f of files) {
+      await vfsStore.add({
+        id: `${workbookId}:${sessionId}:${f.path}`,
+        workbookId,
+        sessionId,
+        path: f.path,
+        data: f.data,
+      });
+    }
+
+    const session = await sessionsStore.get(sessionId);
+    if (session?.lastVfsEviction) {
+      const { lastVfsEviction: _ignored, ...sessionWithoutEviction } = session;
+      await sessionsStore.put(sessionWithoutEviction);
+    }
+
+    await tx.done;
+  });
 }
 
 export async function loadVfsFiles(

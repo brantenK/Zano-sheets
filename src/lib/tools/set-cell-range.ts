@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
-import { setCellRange } from "../excel/api";
+import { type CellInput, setCellRange } from "../excel/api";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 const BorderStyleSchema = Type.Optional(
@@ -156,7 +156,7 @@ export const setCellRangeTool = defineTool({
       const result = await setCellRange(
         params.sheetId,
         params.range,
-        params.cells as any,
+        params.cells as CellInput[][],
         {
           copyToRange: params.copyToRange,
           resizeWidth: params.resizeWidth,

@@ -1,3 +1,4 @@
+import { buildProxyRequestUrl } from "./fetch";
 import type {
   SearchOptions,
   SearchProvider,
@@ -29,7 +30,7 @@ async function fetchWithProxy(
   const proxyUrl = context.proxyUrl || "https://corsproxy.io";
 
   try {
-    return await fetch(`${proxyUrl}/?url=${encodeURIComponent(url)}`, init);
+    return await fetch(buildProxyRequestUrl(proxyUrl, url), init);
   } catch (err) {
     if (context.proxyUrl) {
       throw new Error(

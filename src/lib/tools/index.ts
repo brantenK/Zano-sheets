@@ -2,6 +2,7 @@ export { bashTool } from "./bash";
 export { clearCellRangeTool } from "./clear-cell-range";
 export { copyToTool } from "./copy-to";
 export { evalOfficeJsTool } from "./eval-officejs";
+export { explainFormulaTool } from "./explain-formula";
 export { getAllObjectsTool } from "./get-all-objects";
 export { getCellRangesTool } from "./get-cell-ranges";
 export { getRangeAsCsvTool } from "./get-range-as-csv";
@@ -25,6 +26,7 @@ import { bashTool } from "./bash";
 import { clearCellRangeTool } from "./clear-cell-range";
 import { copyToTool } from "./copy-to";
 import { evalOfficeJsTool } from "./eval-officejs";
+import { explainFormulaTool } from "./explain-formula";
 import { getAllObjectsTool } from "./get-all-objects";
 import { getCellRangesTool } from "./get-cell-ranges";
 import { getRangeAsCsvTool } from "./get-range-as-csv";
@@ -47,6 +49,7 @@ export const EXCEL_TOOLS = [
   searchDataTool,
   screenshotRangeTool,
   getAllObjectsTool,
+  explainFormulaTool,
   // Excel write tools
   setCellRangeTool,
   clearCellRangeTool,
