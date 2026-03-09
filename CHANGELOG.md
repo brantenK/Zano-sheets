@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Features
+
+- **Formula explanation tool** — Added `explain_formula` so the agent can explain Excel formulas in plain English, including referenced cells, key functions, and complexity.
+- **Onboarding flow** — Added a first-run onboarding tour to help users configure providers and understand the core chat workflow.
+- **Runtime diagnostics** — Added startup, performance, and integration diagnostics in Settings, including copyable telemetry snapshots.
+
+### Improvements
+
+- **Startup performance** — Reduced initial taskpane work with broader lazy loading for chat surfaces, settings, markdown rendering, and onboarding.
+- **Chat reliability** — Improved stream timeout handling, simplified tool execution flow, and added clearer recovery behavior for stalled or failed requests.
+- **Provider/model loading** — Added cached provider catalogs and model resolution helpers for more robust provider switching and model validation.
+- **Bash and VFS behavior** — Deferred bash runtime initialization, synchronized shell state back into the virtual filesystem, and improved persistence/restore handling.
+- **Document conversion performance** — Moved PDF, DOCX, and XLSX conversion work into dedicated workers to reduce UI-thread blocking.
+- **OAuth storage safety** — Added stronger OAuth credential validation, save/remove result reporting, and improved token refresh behavior.
+- **Web fetch resilience** — Improved proxy URL construction and fallback handling for web fetch and search providers.
+- **Settings UX** — Added bash usage mode controls, richer diagnostics, and more resilient provider/auth state handling.
+- **Keyboard UX** — Added clearer input hints and keyboard shortcuts for send, stop, clear chat, new session, and settings toggle.
+
+### Fixes
+
+- **Workbook-specific sheet IDs** — Fixed stable sheet ID caching so workbook-specific mappings do not leak across documents.
+- **Friendly tool errors** — Improved error mapping for workbook, worksheet, and object modification failures.
+- **Toast cleanup** — Fixed toast timeout cleanup to avoid lingering timers.
+- **Skill sync behavior** — Improved skill removal and VFS resync behavior for installed skills.
+
+### Tests
+
+- Added regression tests for chat drag overlay state, CSV utilities, model resolution, and OAuth credential storage.
+
 ### Migration
 
 - **Storage key rename:** Internal storage keys were renamed from the legacy `openexcel-*` prefixes to `zanosheets-*` (example: `openexcel-keys` → `zanosheets-keys-v2`). The add-in performs an automatic, transparent migration on first run — no user action required. If you debug settings or storage directly, look for `zanosheets-*` keys going forward.
