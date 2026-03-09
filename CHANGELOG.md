@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-03-09
+
 ### Features
 
 - **Formula explanation tool** — Added `explain_formula` so the agent can explain Excel formulas in plain English, including referenced cells, key functions, and complexity.
