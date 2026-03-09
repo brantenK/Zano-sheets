@@ -79,21 +79,24 @@ function runRequest<T>(
 
 export function extractPdfTextInWorker(
   data: Uint8Array,
+  maxPages?: number,
 ): Promise<PdfTextResult> {
   const buffer = cloneBuffer(data);
-  return runRequest<PdfTextResult>({ kind: "pdf-to-text", data: buffer }, [
-    buffer,
-  ]);
+  return runRequest<PdfTextResult>(
+    { kind: "pdf-to-text", data: buffer, maxPages },
+    [buffer],
+  );
 }
 
 export function renderPdfImagesInWorker(
   data: Uint8Array,
   scale: number,
   pages: number[] | null,
+  maxPages?: number,
 ): Promise<PdfImageResult> {
   const buffer = cloneBuffer(data);
   return runRequest<PdfImageResult>(
-    { kind: "pdf-to-images", data: buffer, scale, pages },
+    { kind: "pdf-to-images", data: buffer, scale, pages, maxPages },
     [buffer],
   );
 }

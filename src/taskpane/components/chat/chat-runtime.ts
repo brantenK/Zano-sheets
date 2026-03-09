@@ -204,7 +204,8 @@ export function buildSystemPrompt(
 Available tools:
 
 FILES & SHELL:
-- read: Read uploaded files (images, CSV, text). Images are returned for visual analysis.
+- read: Read uploaded files (images, PDFs, CSV, text). Images are returned for visual analysis. PDFs are rendered into page images for visual analysis.
+- prepare_invoice_batch: Preflight multiple invoice PDFs. Renders lightweight preview pages into the VFS, checks whether embedded PDF text is usable, and returns structured per-file summaries plus preview image paths. Prefer this first when many invoices are attached.
 - bash: Execute bash commands in a sandboxed virtual filesystem. User uploads are in /home/user/uploads/.
   Supports: ls, cat, grep, find, awk, sed, jq, sort, uniq, wc, cut, head, tail, etc.
   Bash usage mode: ${bashMode === "on-demand" ? "on-demand only. Do not use bash unless the user explicitly asks for shell-style work or the direct tools cannot finish the task." : "automatic. You may use bash when it is the best available tool."}
@@ -234,6 +235,14 @@ FILES & SHELL:
   IMPORTANT: When importing file data into the spreadsheet, ALWAYS prefer csv-to-sheet over reading
   the file content and calling set_cell_range. This avoids wasting tokens on data that doesn't need
   to pass through your context.
+
+  PDF / OCR WORKFLOW:
+  - For invoice, receipt, statement, or other document-extraction tasks involving PDFs, assume image-based OCR first.
+  - When multiple invoice PDFs are attached, use prepare_invoice_batch first to get structured per-file summaries and preview paths before reading any individual invoice in depth.
+  - Prefer pdf-to-images followed by read on the generated PNG pages whenever the PDF may be scanned, photographed, faxed, low-quality, or text extraction appears incomplete.
+  - Use pdf-to-text first only when the user explicitly wants raw embedded text, or when you have reason to expect a born-digital PDF with a usable text layer.
+  - If pdf-to-text returns sparse, garbled, or missing content, immediately switch to pdf-to-images instead of asking the user to retry.
+  - When extracting from multipage invoices, read the page images directly and summarize the structured fields the user needs.
 
   EXECUTION HONESTY:
   - Prefer direct Excel/read/web tools first. Use bash only when it is explicitly needed for shell-style processing.

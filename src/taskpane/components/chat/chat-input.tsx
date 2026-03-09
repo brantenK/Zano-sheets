@@ -152,7 +152,7 @@ export function ChatInput() {
         multiple
         onChange={handleFileSelect}
         className="hidden"
-        accept="image/*,.txt,.csv,.json,.xml,.md,.html,.css,.js,.ts,.py,.sh"
+        accept="image/*,.pdf,.txt,.csv,.json,.xml,.md,.html,.css,.js,.ts,.py,.sh"
       />
 
       {/* Input container — border on wrapper, textarea + action row inside */}

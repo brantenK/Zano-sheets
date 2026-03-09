@@ -330,7 +330,8 @@ function buildSystemPrompt(skills: SkillMeta[]): string {
 Available tools:
 
 FILES & SHELL:
-- read: Read uploaded files (images, CSV, text). Images are returned for visual analysis.
+- read: Read uploaded files (images, PDFs, CSV, text). Images are returned for visual analysis. PDFs are rendered into page images for visual analysis.
+- prepare_invoice_batch: Preflight multiple invoice PDFs. Renders lightweight preview pages into the VFS, checks whether embedded PDF text is usable, and returns structured per-file summaries plus preview image paths. Prefer this first when many invoices are attached.
 - bash: Execute bash commands in a sandboxed virtual filesystem. User uploads are in /home/user/uploads/.
   Supports: ls, cat, grep, find, awk, sed, jq, sort, uniq, wc, cut, head, tail, etc.
 
@@ -359,6 +360,14 @@ FILES & SHELL:
   IMPORTANT: When importing file data into the spreadsheet, ALWAYS prefer csv-to-sheet over reading
   the file content and calling set_cell_range. This avoids wasting tokens on data that doesn't need
   to pass through your context.
+
+  PDF / OCR WORKFLOW:
+  - For invoice, receipt, statement, or other document-extraction tasks involving PDFs, assume image-based OCR first.
+  - When multiple invoice PDFs are attached, use prepare_invoice_batch first to get structured per-file summaries and preview paths before reading any individual invoice in depth.
+  - Prefer pdf-to-images followed by read on the generated PNG pages whenever the PDF may be scanned, photographed, faxed, low-quality, or text extraction appears incomplete.
+  - Use pdf-to-text first only when the user explicitly wants raw embedded text, or when you have reason to expect a born-digital PDF with a usable text layer.
+  - If pdf-to-text returns sparse, garbled, or missing content, immediately switch to pdf-to-images instead of asking the user to retry.
+  - When extracting from multipage invoices, read the page images directly and summarize the structured fields the user needs.
 
   EXECUTION HONESTY:
   - Never claim edits were completed unless write tools actually succeeded.
@@ -904,6 +913,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       try {
         let promptContent = content;
+        const pdfAttachments = (attachments ?? []).filter((name) =>
+          /\.pdf$/i.test(name),
+        );
         try {
           const metadata = await getWorkbookMetadata();
           promptContent = `<wb_context>\n${JSON.stringify(metadata, null, 2)}\n</wb_context>\n\n${content}`;
@@ -931,6 +943,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             .map((name) => `/home/user/uploads/${name}`)
             .join("\n");
           promptContent = `<attachments>\n${paths}\n</attachments>\n\n${promptContent}`;
+        }
+
+        if (pdfAttachments.length > 0) {
+          promptContent = `<pdf_handling_hint>\n${[
+            "For uploaded PDFs used for extraction tasks, prefer image-based OCR.",
+            pdfAttachments.length >= 2
+              ? "If multiple invoices are attached, call prepare_invoice_batch first so you can inspect them incrementally with preview summaries and preview image paths."
+              : "",
+            "If the document looks like a scanned invoice, receipt, or statement, use pdf-to-images first and inspect the resulting PNG pages with read.",
+            "Use pdf-to-text only when the PDF clearly has an embedded text layer or the user explicitly asks for raw text extraction.",
+            pdfAttachments.length >= 4
+              ? "Multiple PDFs are attached. Process them incrementally: inspect one invoice at a time, start with the first page, and only read extra pages when needed. Avoid reading all invoice pages into context at once."
+              : "",
+          ].join("\n")}\n</pdf_handling_hint>\n\n${promptContent}`;
         }
 
         // Set up streaming timeout (5 minutes)

@@ -9,6 +9,7 @@ export { getRangeAsCsvTool } from "./get-range-as-csv";
 export { modifyObjectTool } from "./modify-object";
 export { modifySheetStructureTool } from "./modify-sheet-structure";
 export { modifyWorkbookStructureTool } from "./modify-workbook-structure";
+export { prepareInvoiceBatchTool } from "./prepare-invoice-batch";
 export { readTool } from "./read-file";
 export { resizeRangeTool } from "./resize-range";
 export { screenshotRangeTool } from "./screenshot-range";
@@ -33,6 +34,7 @@ import { getRangeAsCsvTool } from "./get-range-as-csv";
 import { modifyObjectTool } from "./modify-object";
 import { modifySheetStructureTool } from "./modify-sheet-structure";
 import { modifyWorkbookStructureTool } from "./modify-workbook-structure";
+import { prepareInvoiceBatchTool } from "./prepare-invoice-batch";
 import { readTool } from "./read-file";
 import { resizeRangeTool } from "./resize-range";
 import { screenshotRangeTool } from "./screenshot-range";
@@ -42,6 +44,7 @@ import { setCellRangeTool } from "./set-cell-range";
 export const EXCEL_TOOLS = [
   // fs tools
   readTool,
+  prepareInvoiceBatchTool,
   bashTool,
   // Excel read tools
   getCellRangesTool,

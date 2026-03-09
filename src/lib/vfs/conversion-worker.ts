@@ -14,21 +14,36 @@ import type {
 
 declare const self: DedicatedWorkerGlobalScope;
 
+let pdfJsPromise: Promise<typeof import("pdfjs-dist")> | null = null;
+
+async function loadPdfJs() {
+  if (!pdfJsPromise) {
+    pdfJsPromise = import("pdfjs-dist");
+  }
+
+  return pdfJsPromise;
+}
+
 async function loadPdfDocument(data: ArrayBuffer) {
-  const pdfjsLib = await import("pdfjs-dist");
+  const pdfjsLib = await loadPdfJs();
   return pdfjsLib.getDocument({
     data: new Uint8Array(data),
+    disableWorker: true,
     useWorkerFetch: false,
     isEvalSupported: false,
-    useSystemFonts: false,
+    useSystemFonts: true,
   }).promise;
 }
 
-async function extractPdfText(data: ArrayBuffer): Promise<PdfTextResult> {
+async function extractPdfText(
+  data: ArrayBuffer,
+  maxPages?: number,
+): Promise<PdfTextResult> {
   const doc = await loadPdfDocument(data);
   try {
     const pages: string[] = [];
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+    const finalPage = Math.min(doc.numPages, maxPages ?? doc.numPages);
+    for (let pageNumber = 1; pageNumber <= finalPage; pageNumber++) {
       const page = await doc.getPage(pageNumber);
       const content = await page.getTextContent();
       const text = content.items
@@ -47,11 +62,16 @@ async function renderPdfImages(
   data: ArrayBuffer,
   scale: number,
   pages: number[] | null,
+  maxPages?: number,
 ): Promise<PdfImageResult> {
   const doc = await loadPdfDocument(data);
   try {
-    const pageNumbers =
-      pages ?? Array.from({ length: doc.numPages }, (_, i) => i + 1);
+    const pageNumbers = pages
+      ? pages
+      : Array.from(
+          { length: Math.min(doc.numPages, maxPages ?? doc.numPages) },
+          (_, i) => i + 1,
+        );
     const images: PdfImageResult["images"] = [];
 
     for (const pageNumber of pageNumbers) {
@@ -137,9 +157,14 @@ async function handleRequest(
 ): Promise<ConversionResult> {
   switch (request.kind) {
     case "pdf-to-text":
-      return extractPdfText(request.data);
+      return extractPdfText(request.data, request.maxPages);
     case "pdf-to-images":
-      return renderPdfImages(request.data, request.scale, request.pages);
+      return renderPdfImages(
+        request.data,
+        request.scale,
+        request.pages,
+        request.maxPages,
+      );
     case "docx-to-text":
       return extractDocxText(request.data);
     case "xlsx-to-csv":

@@ -31,6 +31,7 @@ export type ConversionRequest =
       id: number;
       kind: "pdf-to-text";
       data: ArrayBuffer;
+      maxPages?: number;
     }
   | {
       id: number;
@@ -38,6 +39,7 @@ export type ConversionRequest =
       data: ArrayBuffer;
       scale: number;
       pages: number[] | null;
+      maxPages?: number;
     }
   | {
       id: number;

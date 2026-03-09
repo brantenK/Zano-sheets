@@ -86,6 +86,10 @@ export function stripEnrichment(
       .join("\n");
   }
   text = text.replace(/^<attachments>\n[\s\S]*?\n<\/attachments>\n\n/, "");
+  text = text.replace(
+    /^<pdf_handling_hint>\n[\s\S]*?\n<\/pdf_handling_hint>\n\n/,
+    "",
+  );
   text = text.replace(/^<wb_context>\n[\s\S]*?\n<\/wb_context>\n\n/, "");
   return text;
 }

@@ -114,6 +114,7 @@ export default defineConfig(async ({ mode }) => {
     resolve: {
       alias: {
         "just-bash/browser": justBashBrowserPath,
+        "sprintf-js": path.resolve(__dirname, "src/shims/sprintf-js.js"),
         "node:util/types": path.resolve(__dirname, "src/shims/util-types-shim.js"),
         process: "rollup/empty",
         // Shim server-only Node.js built-ins pulled in by pi-ai's OAuth/streaming code.
