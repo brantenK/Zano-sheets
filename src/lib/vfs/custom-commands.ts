@@ -2,6 +2,7 @@ import type { Command, CustomCommand } from "just-bash/browser";
 import { defineCommand } from "just-bash/browser";
 import type { CellInput } from "../excel/api";
 import { getRangeAsCsv, getWorksheetById, setCellRange } from "../excel/api";
+import { columnIndexToLetter } from "../excel/excel-utils";
 import { startPerfSpan } from "../perf-telemetry";
 import { loadSavedConfig } from "../provider-config";
 import { loadWebConfig } from "../web/config";
@@ -13,16 +14,6 @@ import {
   extractPdfTextInWorker,
   renderPdfImagesInWorker,
 } from "./conversion-worker-client";
-
-function columnIndexToLetter(index: number): string {
-  let letter = "";
-  let temp = index;
-  while (temp >= 0) {
-    letter = String.fromCharCode((temp % 26) + 65) + letter;
-    temp = Math.floor(temp / 26) - 1;
-  }
-  return letter;
-}
 
 function parseCsv(input: string | Uint8Array): string[][] {
   let text = "";
@@ -118,13 +109,26 @@ function buildRangeAddress(
   return `${startCell}:${endCol}${endRow}`;
 }
 
+function escapeCsvInjection(raw: string): string {
+  if (
+    raw.startsWith("=") ||
+    raw.startsWith("+") ||
+    raw.startsWith("-") ||
+    raw.startsWith("@") ||
+    raw.startsWith("\t")
+  ) {
+    return `'${raw}`; // Prefixing with ' forces Excel to treat this strictly as text
+  }
+  return raw;
+}
+
 function coerceValue(raw: string): string | number | boolean {
   if (raw === "") return "";
   if (raw.toLowerCase() === "true") return true;
   if (raw.toLowerCase() === "false") return false;
   const num = Number(raw);
   if (!Number.isNaN(num) && raw.trim() !== "") return num;
-  return raw;
+  return escapeCsvInjection(raw);
 }
 
 const csvToSheet: Command = defineCommand("csv-to-sheet", async (args, ctx) => {

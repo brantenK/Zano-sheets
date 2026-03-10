@@ -31,8 +31,10 @@
     "watch": "vite build --mode development --watch"
   },
   "dependencies": {
+    "@google/genai": "^1.44.0",
+    "@google/generative-ai": "^0.24.1",
     "@mariozechner/pi-agent-core": "^0.55.4",
-    "@mariozechner/pi-ai": "^0.55.4",
+    "@mariozechner/pi-ai": "^0.57.1",
     "@mozilla/readability": "^0.6.0",
     "@sentry/react": "^10.40.0",
     "@sinclair/typebox": "^0.34.48",
@@ -81,4 +83,3 @@
     }
   }
 }
-

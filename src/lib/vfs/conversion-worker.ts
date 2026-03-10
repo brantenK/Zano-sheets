@@ -28,7 +28,6 @@ async function loadPdfDocument(data: ArrayBuffer) {
   const pdfjsLib = await loadPdfJs();
   return pdfjsLib.getDocument({
     data: new Uint8Array(data),
-    disableWorker: true,
     useWorkerFetch: false,
     isEvalSupported: false,
     useSystemFonts: true,
@@ -46,10 +45,32 @@ async function extractPdfText(
     for (let pageNumber = 1; pageNumber <= finalPage; pageNumber++) {
       const page = await doc.getPage(pageNumber);
       const content = await page.getTextContent();
-      const text = content.items
-        .filter((item) => "str" in item)
-        .map((item) => (item as { str: string }).str)
-        .join(" ");
+      const items = content.items.filter((item) => "str" in item) as {
+        str: string;
+        transform: number[];
+      }[];
+      items.sort((a, b) => {
+        const yDiff = b.transform[5] - a.transform[5];
+        if (Math.abs(yDiff) > 5) return yDiff; // 5pt threshold for same line
+        return a.transform[4] - b.transform[4];
+      });
+
+      const lines: string[] = [];
+      let currentLine: string[] = [];
+      let lastY = items.length > 0 ? items[0].transform[5] : 0;
+
+      for (const item of items) {
+        if (Math.abs(lastY - item.transform[5]) > 5) {
+          lines.push(currentLine.join("  "));
+          currentLine = [];
+          lastY = item.transform[5];
+        }
+        if (item.str.trim()) {
+          currentLine.push(item.str.trim());
+        }
+      }
+      if (currentLine.length > 0) lines.push(currentLine.join("  "));
+      const text = lines.join("\n");
       if (text.trim()) pages.push(text);
     }
     return { pageCount: doc.numPages, text: pages.join("\n\n") };

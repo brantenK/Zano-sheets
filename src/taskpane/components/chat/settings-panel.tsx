@@ -306,6 +306,9 @@ export function SettingsPanel() {
     () => savedWeb.apiKeys.serper || "",
   );
   const [exaApiKey, setExaApiKey] = useState(() => savedWeb.apiKeys.exa || "");
+  const [geminiApiKey, setGeminiApiKey] = useState(
+    () => savedWeb.apiKeys.gemini || "",
+  );
   const [showAdvancedWebKeys, setShowAdvancedWebKeys] = useState(false);
   const [integrationTelemetry, setIntegrationTelemetry] = useState(
     loadIntegrationTelemetry,
@@ -572,6 +575,7 @@ export function SettingsPanel() {
         braveApiKey: string;
         serperApiKey: string;
         exaApiKey: string;
+        geminiApiKey: string;
       }>,
     ) => {
       const nextSearchProvider = updates.searchProvider ?? webSearchProvider;
@@ -579,12 +583,14 @@ export function SettingsPanel() {
       const nextBraveApiKey = updates.braveApiKey ?? braveApiKey;
       const nextSerperApiKey = updates.serperApiKey ?? serperApiKey;
       const nextExaApiKey = updates.exaApiKey ?? exaApiKey;
+      const nextGeminiApiKey = updates.geminiApiKey ?? geminiApiKey;
 
       if ("searchProvider" in updates) setWebSearchProvider(nextSearchProvider);
       if ("fetchProvider" in updates) setWebFetchProvider(nextFetchProvider);
       if ("braveApiKey" in updates) setBraveApiKey(nextBraveApiKey);
       if ("serperApiKey" in updates) setSerperApiKey(nextSerperApiKey);
       if ("exaApiKey" in updates) setExaApiKey(nextExaApiKey);
+      if ("geminiApiKey" in updates) setGeminiApiKey(nextGeminiApiKey);
 
       saveWebConfig({
         searchProvider: nextSearchProvider,
@@ -593,10 +599,18 @@ export function SettingsPanel() {
           brave: nextBraveApiKey,
           serper: nextSerperApiKey,
           exa: nextExaApiKey,
+          gemini: nextGeminiApiKey,
         },
       });
     },
-    [webSearchProvider, webFetchProvider, braveApiKey, serperApiKey, exaApiKey],
+    [
+      webSearchProvider,
+      webFetchProvider,
+      braveApiKey,
+      serperApiKey,
+      exaApiKey,
+      geminiApiKey,
+    ],
   );
 
   const handleProviderChange = async (newProvider: string) => {
@@ -1481,6 +1495,33 @@ export function SettingsPanel() {
                 />
               </label>
             )}
+
+            <label className="block mt-4 pt-4 border-t border-(--chat-border)">
+              <span className="block text-xs text-(--chat-text-secondary) mb-1.5 flex items-center justify-between">
+                <span>Gemini API Key (Required for RAG)</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-(--chat-accent) hover:underline"
+                >
+                  Get Key
+                </a>
+              </span>
+              <input
+                type="password"
+                value={geminiApiKey}
+                onChange={(e) =>
+                  updateWebSettings({ geminiApiKey: e.target.value })
+                }
+                placeholder="Required for AI Knowledge Base"
+                className="w-full bg-(--chat-input-bg) text-(--chat-text-primary)
+                         text-sm px-3 py-2 border border-(--chat-border)
+                         placeholder:text-(--chat-text-muted)
+                         focus:outline-none focus:border-(--chat-border-active)"
+                style={inputStyle}
+              />
+            </label>
 
             <div className="pt-1">
               <button

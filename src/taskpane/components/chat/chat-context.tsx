@@ -254,6 +254,7 @@ interface ChatState {
   sessions: ChatSession[];
   sheetNames: Record<number, string>;
   uploads: UploadedFile[];
+  knowledgeBaseUploads: { name: string; displayName: string }[];
   isUploading: boolean;
   skills: SkillMeta[];
 }
@@ -274,6 +275,7 @@ interface ChatContextValue {
   getSheetName: (sheetId: number) => string | undefined;
   toggleFollowMode: () => void;
   processFiles: (files: File[]) => Promise<void>;
+  processKnowledgeBaseFiles: (files: File[]) => Promise<void>;
   removeUpload: (name: string) => Promise<void>;
   installSkill: (files: File[]) => Promise<void>;
   uninstallSkill: (name: string) => Promise<void>;
@@ -301,6 +303,7 @@ const EMPTY_CHAT_STATE: ChatState = {
   sessions: [],
   sheetNames: {},
   uploads: [],
+  knowledgeBaseUploads: [],
   isUploading: false,
   skills: [],
 };
@@ -319,6 +322,7 @@ const FALLBACK_CHAT_CONTEXT: ChatContextValue = {
   getSheetName: () => undefined,
   toggleFollowMode: () => {},
   processFiles: async () => {},
+  processKnowledgeBaseFiles: async () => {},
   removeUpload: async () => {},
   installSkill: async () => {},
   uninstallSkill: async () => {},
@@ -425,6 +429,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessions: [],
       sheetNames: {},
       uploads: [],
+      knowledgeBaseUploads: [],
       isUploading: false,
       skills: [],
     };
@@ -1001,6 +1006,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     abort();
     agentRef.current?.reset();
     resetVfs();
+    import("../../../lib/tools/query-knowledge-base")
+      .then((m) => m.clearKnowledgeBaseFiles())
+      .catch(console.error);
     if (currentSessionIdRef.current) {
       Promise.all([
         saveSession(currentSessionIdRef.current, []),
@@ -1037,6 +1045,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       agentRef.current?.reset();
       resetVfs();
+      import("../../../lib/tools/query-knowledge-base")
+        .then((m) => m.clearKnowledgeBaseFiles())
+        .catch(console.error);
       const session = await createSession(workbookIdRef.current);
       currentSessionIdRef.current = session.id;
       await refreshSessions();
@@ -1059,6 +1070,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     agentRef.current?.reset();
+    import("../../../lib/tools/query-knowledge-base")
+      .then((m) => m.clearKnowledgeBaseFiles())
+      .catch(console.error);
     try {
       const [session, vfsFiles] = await Promise.all([
         getSession(sessionId),
@@ -1087,6 +1101,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           contextWindow: prev.sessionStats.contextWindow,
         },
         uploads: uploadNames.map((name) => ({ name, size: 0 })),
+        knowledgeBaseUploads: [],
       }));
     } catch (err) {
       console.error("[Chat] Failed to switch session:", err);
@@ -1099,6 +1114,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     agentRef.current?.reset();
+    import("../../../lib/tools/query-knowledge-base")
+      .then((m) => m.clearKnowledgeBaseFiles())
+      .catch(console.error);
     const deletedId = currentSessionIdRef.current;
     await Promise.all([
       deleteSession(deletedId),
@@ -1126,6 +1144,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         contextWindow: prev.sessionStats.contextWindow,
       },
       uploads: uploadNames.map((name) => ({ name, size: 0 })),
+      knowledgeBaseUploads: [],
     }));
   }, [refreshSessions]);
 
@@ -1314,6 +1333,43 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const processKnowledgeBaseFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    setState((prev) => ({ ...prev, isUploading: true }));
+    try {
+      const { uploadFileToGemini } = await import(
+        "../../../lib/rag/gemini-file-store"
+      );
+      const { addFileToKnowledgeBase } = await import(
+        "../../../lib/tools/query-knowledge-base"
+      );
+
+      for (const file of files) {
+        const geminiFile = await uploadFileToGemini(file, file.name, file.type);
+        addFileToKnowledgeBase(geminiFile);
+
+        setState((prev) => ({
+          ...prev,
+          knowledgeBaseUploads: [
+            ...prev.knowledgeBaseUploads,
+            { name: geminiFile.name, displayName: geminiFile.displayName },
+          ],
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to upload to Knowledge Base:", err);
+      setState((prev) => ({
+        ...prev,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Failed to upload to Knowledge Base",
+      }));
+    } finally {
+      setState((prev) => ({ ...prev, isUploading: false }));
+    }
+  }, []);
+
   const refreshSkillsAndRebuildAgent = useCallback(async () => {
     skillsRef.current = await getInstalledSkills();
     setState((prev) => {
@@ -1391,6 +1447,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         getSheetName,
         toggleFollowMode,
         processFiles,
+        processKnowledgeBaseFiles,
         removeUpload,
         installSkill,
         uninstallSkill,

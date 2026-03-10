@@ -1,4 +1,4 @@
-import { Paperclip, Send, Square, X } from "lucide-react";
+import { Database, Paperclip, Send, Square, X } from "lucide-react";
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -20,11 +20,20 @@ const MIN_ROWS = 1;
 const MAX_ROWS = 2;
 
 export function ChatInput() {
-  const { sendMessage, state, abort, processFiles, removeUpload } = useChat();
+  const {
+    sendMessage,
+    state,
+    abort,
+    processFiles,
+    processKnowledgeBaseFiles,
+    removeUpload,
+  } = useChat();
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const kbFileInputRef = useRef<HTMLInputElement>(null);
   const uploads = state.uploads;
+  const knowledgeBaseUploads = state.knowledgeBaseUploads || [];
   const isUploading = state.isUploading;
 
   const autoResize = useCallback(() => {
@@ -104,6 +113,22 @@ export function ChatInput() {
     fileInputRef.current?.click();
   }, []);
 
+  const handleKbFileSelect = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      await processKnowledgeBaseFiles(Array.from(files));
+      if (kbFileInputRef.current) {
+        kbFileInputRef.current.value = "";
+      }
+    },
+    [processKnowledgeBaseFiles],
+  );
+
+  const openKbFilePicker = useCallback(() => {
+    kbFileInputRef.current?.click();
+  }, []);
+
   return (
     <div
       className="border-t border-(--chat-border) px-3 py-2 bg-(--chat-bg)"
@@ -116,7 +141,7 @@ export function ChatInput() {
       )}
 
       {/* Uploaded files chips */}
-      {uploads.length > 0 && (
+      {(uploads.length > 0 || knowledgeBaseUploads.length > 0) && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {uploads.map((file) => (
             <div
@@ -142,6 +167,19 @@ export function ChatInput() {
               </button>
             </div>
           ))}
+          {knowledgeBaseUploads.map((file) => (
+            <div
+              key={file.name}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] bg-(--chat-bg-secondary) border border-blue-500/30 text-blue-500"
+              style={{ borderRadius: "var(--chat-radius)" }}
+              title="Saved in Knowledge Base"
+            >
+              <Database size={10} className="mr-0.5" />
+              <span className="max-w-[120px] truncate" title={file.displayName}>
+                {file.displayName}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -153,6 +191,14 @@ export function ChatInput() {
         onChange={handleFileSelect}
         className="hidden"
         accept="image/*,.pdf,.txt,.csv,.json,.xml,.md,.html,.css,.js,.ts,.py,.sh"
+      />
+      <input
+        ref={kbFileInputRef}
+        type="file"
+        multiple
+        onChange={handleKbFileSelect}
+        className="hidden"
+        accept=".pdf,.txt,.docx,.md,.csv,.json,.xml"
       />
 
       {/* Input container — border on wrapper, textarea + action row inside */}
@@ -198,6 +244,21 @@ export function ChatInput() {
               title="Upload files"
             >
               <Paperclip
+                size={13}
+                className={isUploading ? "animate-pulse" : ""}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={openKbFilePicker}
+              disabled={isUploading || state.isStreaming}
+              className="flex items-center justify-center w-6 h-5
+                         text-(--chat-text-muted) hover:text-blue-500
+                         disabled:opacity-30 disabled:cursor-not-allowed
+                         transition-colors"
+              title="Add to Knowledge Base"
+            >
+              <Database
                 size={13}
                 className={isUploading ? "animate-pulse" : ""}
               />

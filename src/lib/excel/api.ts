@@ -1,13 +1,32 @@
 /* global Excel */
 
+import { columnIndexToLetter } from "./excel-utils";
 import { createSearchPageCollector } from "./search-data-pagination";
 import { getStableSheetId, preloadSheetIds } from "./sheet-id-map";
 
 export { getStableSheetId, preloadSheetIds };
+export { columnIndexToLetter };
 
 export interface CellData {
   value: string | number | boolean | null;
   formula?: string;
+}
+
+async function runWithRetry<T>(
+  batch: (context: Excel.RequestContext) => Promise<T>,
+  retries = 3,
+  delayMs = 300,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await Excel.run(batch);
+    } catch (error) {
+      attempt++;
+      if (attempt >= retries) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
 }
 
 export interface CellStyle {
@@ -33,16 +52,6 @@ export interface GetCellRangesResult {
   success: boolean;
   hasMore: boolean;
   worksheet: WorksheetInfo;
-}
-
-function columnIndexToLetter(index: number): string {
-  let letter = "";
-  let temp = index;
-  while (temp >= 0) {
-    letter = String.fromCharCode((temp % 26) + 65) + letter;
-    temp = Math.floor(temp / 26) - 1;
-  }
-  return letter;
 }
 
 export function cellAddress(rowIndex: number, colIndex: number): string {
@@ -183,8 +192,9 @@ export async function resilientSync(
 
 /**
  * High-level wrapper for Excel operations.
+ * Individual syncs inside the batch use resilientSync() for retry-on-busy.
  */
-async function runWithRetry<T>(
+async function runBatch<T>(
   batch: (context: Excel.RequestContext) => Promise<T>,
 ): Promise<T> {
   return Excel.run(batch);
@@ -197,7 +207,7 @@ export async function getCellRanges(
 ): Promise<GetCellRangesResult> {
   const { includeStyles = true, cellLimit = 2000 } = options;
 
-  return runWithRetry(async (context) => {
+  return runBatch(async (context) => {
     const sheet = await getWorksheetById(context, sheetId);
     if (!sheet) {
       throw new Error(`Worksheet with ID ${sheetId} not found`);
@@ -860,7 +870,7 @@ export async function setCellRange(
         }
         if (s.numberFormat) {
           batchRange.load("areas");
-          // No sync here - let it batch
+          await resilientSync(context);
           for (const area of batchRange.areas.items) {
             // Office.js accepts a plain string at runtime even though the type
             // declares numberFormat as any[][]. Cast to satisfy the compiler.
@@ -1323,7 +1333,7 @@ export async function getWorkbookMetadata(): Promise<WorkbookMetadata> {
   if (_metadataCache && now - _metadataCache.ts < METADATA_CACHE_TTL_MS) {
     return _metadataCache.result;
   }
-  const result = await runWithRetry(async (context) => {
+  const result = await runBatch(async (context) => {
     const workbook = context.workbook;
     workbook.load("name");
     const sheets = workbook.worksheets;

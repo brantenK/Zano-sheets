@@ -5,6 +5,7 @@ export interface WebConfig {
     exa?: string;
     brave?: string;
     serper?: string;
+    gemini?: string;
   };
 }
 
