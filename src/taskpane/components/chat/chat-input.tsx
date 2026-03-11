@@ -80,11 +80,6 @@ export function ChatInput() {
         return;
       }
 
-      // Enter without shift: Submit (legacy behavior, can be changed)
-      // if (e.key === "Enter" && !e.shiftKey) {
-      //   e.preventDefault();
-      //   handleSubmit();
-      // }
     },
     [handleSubmit, state.isStreaming, abort],
   );
