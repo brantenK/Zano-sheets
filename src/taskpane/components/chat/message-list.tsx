@@ -583,6 +583,10 @@ export function MessageList() {
     }
   });
 
+  // ⚡ Bolt Optimization: Memoize grouped messages to prevent O(n) recalculations
+  // during frequent re-renders (like when streaming text tokens from the LLM)
+  const groups = useMemo(() => groupMessages(state.messages), [state.messages]);
+
   if (state.messages.length === 0) {
     return (
       <div
@@ -599,7 +603,6 @@ export function MessageList() {
     );
   }
 
-  const groups = groupMessages(state.messages);
   const lastMessage = state.messages[state.messages.length - 1];
   const showLoading = state.isStreaming && lastMessage?.role === "user";
   const lastGroup = groups[groups.length - 1];

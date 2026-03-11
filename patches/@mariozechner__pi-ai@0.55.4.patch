@@ -2,7 +2,7 @@ diff --git a/dist/providers/openai-codex-responses.js b/dist/providers/openai-co
 index 7fe8f3b576e918c96a0d12a868317ae9cb1abd09..3d18828461c4b269cba96870476852132da116b6 100644
 --- a/dist/providers/openai-codex-responses.js
 +++ b/dist/providers/openai-codex-responses.js	
-@@ -196,7 +196,9 @@ function buildRequestBody(model, context, options) {
+@@ -196,8 +196,10 @@ function buildRequestBody(model, context, options) {
      });
      const body = {
          model: model.id,
