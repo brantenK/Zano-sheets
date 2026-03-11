@@ -21,30 +21,151 @@ function getApiKey(
   return context.apiKeys?.[providerId];
 }
 
-async function fetchWithProxy(
+function normalizeRegion(region?: string): {
+  country: string;
+  language: string;
+  uiLanguage: string;
+} {
+  const [countryRaw, languageRaw] = (region || "us-en").split("-");
+  const country = countryRaw?.toUpperCase() || "US";
+  const language = languageRaw?.toLowerCase() || "en";
+  return {
+    country,
+    language,
+    uiLanguage: `${language}-${country}`,
+  };
+}
+
+function toBraveFreshness(timelimit?: SearchOptions["timelimit"]): string | null {
+  switch (timelimit) {
+    case "d":
+      return "pd";
+    case "w":
+      return "pw";
+    case "m":
+      return "pm";
+    case "y":
+      return "py";
+    default:
+      return null;
+  }
+}
+
+async function readResponseErrorDetail(response: Response): Promise<string> {
+  try {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const json = (await response.clone().json()) as unknown;
+      if (typeof json === "object" && json !== null) {
+        const data = json as Record<string, unknown>;
+        const candidates = [
+          "message",
+          "error",
+          "detail",
+          "details",
+          "status",
+        ] as const;
+        for (const key of candidates) {
+          const value = data[key];
+          if (typeof value === "string" && value.trim()) {
+            return value.trim();
+          }
+        }
+      }
+    }
+
+    const text = (await response.clone().text()).trim();
+    return text ? text.slice(0, 200) : "";
+  } catch {
+    return "";
+  }
+}
+
+async function fetchDirectWithProxyFallback(
   url: string,
   context: WebContext,
   init?: RequestInit,
 ): Promise<Response> {
-  // Use user-configured proxy first, then fallback to corsproxy.io, then direct fetch
-  const proxyUrl = context.proxyUrl || "https://corsproxy.io";
-
   try {
-    return await fetch(buildProxyRequestUrl(proxyUrl, url), init);
-  } catch (err) {
-    if (context.proxyUrl) {
-      throw new Error(
-        `Configured CORS proxy search failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    // If fallback failed, try direct fetch as a last resort (might work on some local networks)
+    return await fetch(url, init);
+  } catch {
+    return await fetchWithProxy(url, context, init);
+  }
+}
+
+async function fetchWithProxy(
+  url: string,
+  context: WebContext,
+  init?: RequestInit,
+  options?: { skipProxy?: boolean },
+): Promise<Response> {
+  // If skipProxy is true, fetch directly (for API calls with CORS support)
+  if (options?.skipProxy) {
+    return await fetch(url, init);
+  }
+
+  // Use user-configured proxy, or fallback to consistent proxies if none configured
+  const proxies = context.proxyUrl
+    ? [context.proxyUrl]
+    : ["https://api.allorigins.win/raw", "https://corsproxy.io"];
+
+  let lastError: Error | undefined;
+
+  for (const proxy of proxies) {
     try {
-      return await fetch(url, init);
-    } catch {
-      throw new Error(
-        "Search blocked by CORS. Please configure a custom CORS proxy in Settings for better reliability.",
-      );
+      const proxyUrlFinal = buildProxyRequestUrl(proxy, url);
+      const response = await fetch(proxyUrlFinal, init);
+
+      // Retry on 403, 429 (rate limit), or 5xx server errors (only for non-user-configured proxies)
+      if (
+        response.status === 403 ||
+        response.status === 429 ||
+        (response.status >= 500 && response.status < 600)
+      ) {
+        // Capture response body text for diagnostics before cancelling
+        let errorDetail = "";
+        try {
+          const text = await response.clone().text();
+          if (text) errorDetail = ` - ${text.substring(0, 200)}`;
+        } catch {
+          /* ignore - body may already be consumed */
+        }
+
+        // Consume body to prevent memory leaks before continuing to next proxy
+        response.body?.cancel();
+
+        // If user configured a specific proxy and it failed, don't try fallbacks
+        if (context.proxyUrl) {
+          throw new Error(
+            `Configured CORS proxy returned ${response.status}.${errorDetail} Please check your proxy configuration.`,
+          );
+        }
+        lastError = new Error(
+          `Proxy returned ${response.status}. Trying next proxy...${errorDetail}`,
+        );
+        continue;
+      }
+
+      return response;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // If user configured a specific proxy and it failed, don't try fallbacks
+      if (context.proxyUrl) {
+        throw new Error(
+          `Configured CORS proxy search failed: ${lastError.message}`,
+        );
+      }
+      // Otherwise try next proxy
     }
+  }
+
+  // All proxies failed, try direct fetch as last resort
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error(
+      "Search blocked by CORS. Please configure a custom CORS proxy in Settings for better reliability.",
+    );
   }
 }
 
@@ -75,11 +196,14 @@ const ddgsProvider: SearchProvider = {
 
     const results: SearchResult[] = [];
     for (const item of doc.querySelectorAll(".result")) {
-      const titleEl = item.querySelector(".result__title a, .result__a");
+      const titleEl = item.querySelector(".result__a");
       const bodyEl = item.querySelector(".result__snippet");
       let href = titleEl?.getAttribute("href") ?? "";
-      if (!href || href.includes("duckduckgo.com/y.js")) continue;
+      if (!href) continue;
+      if (href.includes("duckduckgo.com/y.js")) continue;
       if (href.startsWith("//")) href = `https:${href}`;
+      const redirect = href.match(/uddg=([^&]+)/);
+      if (redirect) href = decodeURIComponent(redirect[1]);
 
       results.push({
         title: textOf(titleEl),
@@ -107,14 +231,20 @@ const braveProvider: SearchProvider = {
 
     const maxResults = options.maxResults ?? 10;
     const offset = ((options.page ?? 1) - 1) * maxResults;
-    const country = options.region?.split("-")[0]?.toUpperCase() || "US";
+    const { country, language, uiLanguage } = normalizeRegion(options.region);
+    const freshness = toBraveFreshness(options.timelimit);
     const url = new URL("https://api.search.brave.com/res/v1/web/search");
     url.searchParams.set("q", query);
     url.searchParams.set("count", String(maxResults));
     url.searchParams.set("offset", String(offset));
     url.searchParams.set("country", country);
+    url.searchParams.set("search_lang", language);
+    url.searchParams.set("ui_lang", uiLanguage);
+    if (freshness) {
+      url.searchParams.set("freshness", freshness);
+    }
 
-    const resp = await fetchWithProxy(url.toString(), context, {
+    const resp = await fetchDirectWithProxyFallback(url.toString(), context, {
       headers: {
         Accept: "application/json",
         "X-Subscription-Token": apiKey,
@@ -122,7 +252,10 @@ const braveProvider: SearchProvider = {
     });
 
     if (!resp.ok) {
-      throw new Error(`Brave search failed: ${resp.status} ${resp.statusText}`);
+      const detail = await readResponseErrorDetail(resp);
+      throw new Error(
+        `Brave search failed: ${resp.status} ${resp.statusText}${detail ? ` - ${detail}` : ""}`,
+      );
     }
 
     const data = (await resp.json()) as {
@@ -180,7 +313,7 @@ const serperProvider: SearchProvider = {
         "X-API-KEY": apiKey,
       },
       body: JSON.stringify(body),
-    });
+    }, { skipProxy: true }); // Serper API has CORS support, use direct fetch
 
     if (!resp.ok) {
       throw new Error(
@@ -226,7 +359,7 @@ const exaProvider: SearchProvider = {
         "x-api-key": apiKey,
       },
       body: JSON.stringify(body),
-    });
+    }, { skipProxy: true }); // Exa API has CORS support, use direct fetch
 
     if (!resp.ok) {
       throw new Error(`Exa search failed: ${resp.status} ${resp.statusText}`);
@@ -253,6 +386,9 @@ const PROVIDERS: Record<string, SearchProvider> = {
 
 const PROVIDER_LABELS: Record<string, string> = {
   ddgs: "ddgs (free, easily rate limited)",
+  brave: "brave (API key)",
+  serper: "serper (API key)",
+  exa: "exa (API key)",
 };
 
 export function listSearchProviders(): { id: string; label: string }[] {

@@ -5,6 +5,7 @@ export {
   type ClearCellRangeResult,
   type CopyToResult,
   clearCellRange,
+  columnIndexToLetter,
   copyTo,
   type ExcelObject,
   type GetAllObjectsResult,

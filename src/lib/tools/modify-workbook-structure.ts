@@ -55,7 +55,7 @@ export const modifyWorkbookStructureTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "modify_workbook_structure");
       const result = await modifyWorkbookStructure(params);
       bustWorkbookMetadataCache();
       return toolSuccess(result);

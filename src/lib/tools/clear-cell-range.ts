@@ -36,7 +36,7 @@ export const clearCellRangeTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "clear_cell_range");
       const result = await clearCellRange(
         params.sheetId,
         params.range,

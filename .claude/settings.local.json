@@ -9,7 +9,22 @@
       "Bash(ls \"/c/Users/BrantenKonyana/OneDrive - Genesis Chartered Accountants/Documents/open-excel-main/node_modules/.bin/vite\"*)",
       "Bash(ls \"/c/Users/BrantenKonyana/OneDrive - Genesis Chartered Accountants/Documents/open-excel-main/src/taskpane/\"*.html)",
       "Bash(ls \"/c/Users/BrantenKonyana/OneDrive - Genesis Chartered Accountants/Documents/open-excel-main/\"*.html)",
-      "Bash(\"/c/Users/BrantenKonyana/AppData/Roaming/npm/pnpm.cmd\" patch-commit \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\\\\node_modules\\\\.pnpm_patches\\\\@mariozechner\\\\pi-ai@0.55.4\")"
+      "Bash(\"/c/Users/BrantenKonyana/AppData/Roaming/npm/pnpm.cmd\" patch-commit \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\\\\node_modules\\\\.pnpm_patches\\\\@mariozechner\\\\pi-ai@0.55.4\")",
+      "Bash(npm list @mariozechner/pi-agent-core @mariozechner/pi-ai)",
+      "Bash(npx tsc --noEmit --skipLibCheck)",
+      "Bash(pnpm check)",
+      "Bash(echo \"Check failed with exit code $?\")",
+      "Bash(pnpm build)",
+      "Bash(npm run lint)",
+      "Bash(npm run typecheck)",
+      "Bash(xargs grep -l \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\")",
+      "Bash(xargs grep -l \"console\\\\.log\\\\|debugger\")",
+      "Bash(cloc src --exclude-dir=node_modules,.git,tests,dist,public --by-file-by-lang)",
+      "Bash(xargs ls -la)",
+      "Bash(xargs grep -l \"catch.*{.*}\")",
+      "Bash(node \"C:\\\\Users\\\\BrantenKonyana\\\\Downloads\\\\improvements-generator.js\")",
+      "Bash(npm init -y)",
+      "Bash(npm install docx)"
     ]
   }
 }

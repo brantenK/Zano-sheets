@@ -9,6 +9,11 @@ export interface OAuthStorageWriteResult {
   error?: string;
 }
 
+import {
+  getCredentialStorage,
+  getLocalStorage,
+  getSessionStorage,
+} from "../credential-storage";
 import { handleError } from "../silent-error-handler";
 
 export type OAuthFlowState =
@@ -45,20 +50,24 @@ function parseOAuthStore(raw: string | null): Record<string, OAuthCredentials> {
 }
 
 function loadOAuthStore(): Record<string, OAuthCredentials> {
-  const currentRaw = localStorage.getItem(OAUTH_STORAGE_KEY);
+  const storage = getCredentialStorage();
+  const currentRaw = storage.getItem(OAUTH_STORAGE_KEY);
   if (currentRaw) {
     return parseOAuthStore(currentRaw);
   }
 
-  const legacyRaw = localStorage.getItem(LEGACY_OAUTH_STORAGE_KEY);
+  const legacyRaw = storage.getItem(LEGACY_OAUTH_STORAGE_KEY);
   if (!legacyRaw) return {};
 
   const legacyStore = parseOAuthStore(legacyRaw);
   try {
-    localStorage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(legacyStore));
-    localStorage.removeItem(LEGACY_OAUTH_STORAGE_KEY);
-  } catch {
-    /* ignore */
+    storage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(legacyStore));
+    storage.removeItem(LEGACY_OAUTH_STORAGE_KEY);
+  } catch (err) {
+    // Migration may fail if storage is full or unavailable; log but continue
+    handleError(err, "OAuth legacy data migration failed", {
+      logToTelemetry: false,
+    });
   }
   return legacyStore;
 }
@@ -107,7 +116,8 @@ export function saveOAuthCredentials(
   try {
     const store = loadOAuthStore();
     store[provider] = validateOAuthCredentials(creds, "OAuth credential save");
-    localStorage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
+    const storage = getCredentialStorage();
+    storage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
     return { ok: true };
   } catch (error) {
     handleError(error, "OAuth credential save", { logToTelemetry: true });
@@ -124,7 +134,8 @@ export function removeOAuthCredentials(
   try {
     const store = loadOAuthStore();
     delete store[provider];
-    localStorage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
+    const storage = getCredentialStorage();
+    storage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
     return { ok: true };
   } catch (error) {
     handleError(error, "OAuth credential remove", { logToTelemetry: true });
@@ -135,10 +146,31 @@ export function removeOAuthCredentials(
   }
 }
 
+function clearOAuthStoreInStorage(storage: Storage) {
+  storage.removeItem(OAUTH_STORAGE_KEY);
+  storage.removeItem(LEGACY_OAUTH_STORAGE_KEY);
+}
+
+export function clearStoredOAuthCredentials(storage?: Storage) {
+  try {
+    const target = storage ?? getCredentialStorage();
+    clearOAuthStoreInStorage(target);
+  } catch (error) {
+    handleError(error, "OAuth clear stored credentials");
+  }
+}
+
 export function clearAllOAuthCredentials() {
   try {
-    localStorage.removeItem(OAUTH_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_OAUTH_STORAGE_KEY);
+    const local = getLocalStorage();
+    if (local) {
+      clearOAuthStoreInStorage(local);
+    }
+
+    const session = getSessionStorage();
+    if (session) {
+      clearOAuthStoreInStorage(session);
+    }
   } catch (error) {
     handleError(error, "OAuth clear all credentials");
   }

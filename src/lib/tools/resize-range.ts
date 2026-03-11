@@ -38,7 +38,7 @@ export const resizeRangeTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "resize_range");
       const result = await resizeRange(params.sheetId, {
         range: params.range,
         width: params.width,

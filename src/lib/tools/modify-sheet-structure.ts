@@ -53,7 +53,7 @@ export const modifySheetStructureTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "modify_sheet_structure");
       const result = await modifySheetStructure(params.sheetId, {
         operation: params.operation,
         dimension: params.dimension,

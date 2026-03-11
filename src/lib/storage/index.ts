@@ -1,9 +1,10 @@
-export type { ChatSession, SkillFile } from "./db";
+﻿export type { ChatSession, SkillFile } from "./db";
 export {
   createSession,
   deleteSession,
   deleteSkillFiles,
   deleteVfsFiles,
+  getLatestKnowledgeBaseFiles,
   getOrCreateCurrentSession,
   getOrCreateWorkbookId,
   getSession,
@@ -15,6 +16,7 @@ export {
   loadVfsFiles,
   renameSession,
   saveSession,
+  saveSessionKnowledgeBase,
   saveSkillFiles,
   saveVfsFiles,
 } from "./db";

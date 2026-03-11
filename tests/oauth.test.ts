@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadOAuthCredentials,
   saveOAuthCredentials,
 } from "../src/lib/oauth";
 
 const store: Record<string, string> = {};
+const sessionStore: Record<string, string> = {};
 
 vi.stubGlobal("localStorage", {
   getItem: (key: string) => store[key] ?? null,
@@ -21,13 +22,41 @@ vi.stubGlobal("localStorage", {
   },
 });
 
+vi.stubGlobal("sessionStorage", {
+  getItem: (key: string) => sessionStore[key] ?? null,
+  setItem: (key: string, value: string) => {
+    sessionStore[key] = value;
+  },
+  removeItem: (key: string) => {
+    delete sessionStore[key];
+  },
+  clear: () => {
+    for (const key of Object.keys(sessionStore)) {
+      delete sessionStore[key];
+    }
+  },
+});
+
 beforeEach(() => {
   for (const key of Object.keys(store)) {
     delete store[key];
   }
+  for (const key of Object.keys(sessionStore)) {
+    delete sessionStore[key];
+  }
 });
 
 describe("OAuth credential storage", () => {
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
   it("loads valid saved credentials", () => {
     const result = saveOAuthCredentials("anthropic", {
       access: "access-token",

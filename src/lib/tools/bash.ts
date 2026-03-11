@@ -21,8 +21,8 @@ export const bashTool = defineTool({
     "You will only see a fraction of the data and will produce WRONG results. " +
     "Instead, ALWAYS use processing tools like 'awk', 'grep', 'sed', or 'wc' to perform calculations INSIDE the sandbox and only output the final results/summaries. " +
     "Useful for: file operations (ls, cat, grep, find), text processing (awk, sed, jq, sort, uniq), " +
-    "data analysis (wc, cut, paste), and general scripting. " +
-    "Network access is disabled. No external runtimes (node, python, etc.) are available.",
+    "data analysis (wc, cut, paste), web search (web-search), web fetching (web-fetch), and general scripting. " +
+    "No external runtimes (node, python, etc.) are available.",
   parameters: Type.Object({
     command: Type.String({
       description:
@@ -40,7 +40,7 @@ export const bashTool = defineTool({
   execute: async (toolCallId, params) => {
     const span = startPerfSpan("bash_command_ms");
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "bash");
       markBashWorkflowStart();
 
       const command = params.command.trim();

@@ -248,7 +248,7 @@ export const explainFormulaTool = defineTool({
   }),
   execute: async (_toolCallId, params) => {
     try {
-      await checkToolApproval(_toolCallId);
+      await checkToolApproval(_toolCallId, "explain_formula");
 
       // Get the cell data
       const result = await getCellRanges(params.sheetId, [params.cell]);

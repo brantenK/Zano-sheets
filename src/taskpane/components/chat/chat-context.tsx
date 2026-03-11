@@ -21,7 +21,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { DirtyRange } from "../../../lib/dirty-tracker";
+import { parseDirtyRanges } from "../../../lib/dirty-tracker";
 import { getWorkbookMetadata, navigateTo } from "../../../lib/excel/api";
 import { recordIntegrationTelemetry } from "../../../lib/integration-telemetry";
 import {
@@ -47,6 +47,7 @@ import {
   saveConfig,
   type ThinkingLevel,
 } from "../../../lib/provider-config";
+import type { KnowledgeBaseFileRecord } from "../../../lib/rag/types";
 import {
   addSkill,
   buildSkillsPromptSection,
@@ -59,15 +60,23 @@ import {
   type ChatSession,
   createSession,
   deleteSession,
+  getLatestKnowledgeBaseFiles,
   getOrCreateCurrentSession,
   getOrCreateWorkbookId,
   getSession,
   listSessions,
   loadVfsFiles,
   saveSession,
+  saveSessionKnowledgeBase,
   saveVfsFiles,
 } from "../../../lib/storage";
 import { EXCEL_TOOLS } from "../../../lib/tools";
+import {
+  addFileToKnowledgeBase,
+  getKnowledgeBaseFiles,
+  removeKnowledgeBaseFile as removeKnowledgeBaseFileRecord,
+  replaceKnowledgeBaseFiles,
+} from "../../../lib/tools/query-knowledge-base";
 import {
   deleteFile,
   listUploads,
@@ -85,21 +94,49 @@ export type {
 } from "../../../lib/message-utils";
 export type { ProviderConfig, ThinkingLevel };
 
-function parseDirtyRanges(result: string | undefined): DirtyRange[] | null {
-  if (!result) return null;
+type ToolApprovalSetting = "auto" | "prompt";
+
+const TOOL_APPROVAL_KEY = "zanosheets-tool-approval";
+const DEFAULT_TOOL_APPROVAL: ToolApprovalSetting = "prompt";
+const DESTRUCTIVE_TOOLS = new Set([
+  "bash",
+  "clear_cell_range",
+  "copy_to",
+  "eval_officejs",
+  "modify_object",
+  "modify_sheet_structure",
+  "modify_workbook_structure",
+  "resize_range",
+  "set_cell_range",
+]);
+
+function getToolApprovalSetting(): ToolApprovalSetting {
   try {
-    const parsed = JSON.parse(result);
-    if (parsed._dirtyRanges && Array.isArray(parsed._dirtyRanges)) {
-      return parsed._dirtyRanges;
+    const stored = localStorage.getItem(TOOL_APPROVAL_KEY);
+    if (stored === "auto" || stored === "prompt") {
+      return stored;
     }
   } catch {
-    // Not valid JSON or no dirty ranges
+    // ignore storage failures
   }
-  return null;
+  return DEFAULT_TOOL_APPROVAL;
 }
 
-export async function checkToolApproval(_toolCallId: string): Promise<void> {
-  return;
+export async function checkToolApproval(
+  _toolCallId: string,
+  toolName?: string,
+): Promise<void> {
+  const setting = getToolApprovalSetting();
+  if (setting === "auto") return;
+  if (toolName && !DESTRUCTIVE_TOOLS.has(toolName)) return;
+
+  const label = toolName
+    ? `Allow "${toolName}" to run? It may modify your workbook.`
+    : "Allow this tool to run? It may modify your workbook.";
+  const ok = window.confirm(label);
+  if (!ok) {
+    throw new Error("Tool execution cancelled by user.");
+  }
 }
 
 function isToolResultErrorText(result: string | undefined): boolean {
@@ -162,7 +199,7 @@ function extractToolErrorMessage(result: string | undefined): string {
     // keep raw output fallback
   }
 
-  return trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed;
+  return trimmed.length > 220 ? `${trimmed.slice(0, 220)}...` : trimmed;
 }
 
 export function getErrorStatus(err: unknown): number | undefined {
@@ -254,7 +291,11 @@ interface ChatState {
   sessions: ChatSession[];
   sheetNames: Record<number, string>;
   uploads: UploadedFile[];
-  knowledgeBaseUploads: { name: string; displayName: string }[];
+  knowledgeBaseUploads: {
+    name: string;
+    displayName: string;
+    createTime?: string;
+  }[];
   isUploading: boolean;
   skills: SkillMeta[];
 }
@@ -276,6 +317,7 @@ interface ChatContextValue {
   toggleFollowMode: () => void;
   processFiles: (files: File[]) => Promise<void>;
   processKnowledgeBaseFiles: (files: File[]) => Promise<void>;
+  removeKnowledgeBaseFile: (name: string) => Promise<boolean>;
   removeUpload: (name: string) => Promise<void>;
   installSkill: (files: File[]) => Promise<void>;
   uninstallSkill: (name: string) => Promise<void>;
@@ -323,13 +365,23 @@ const FALLBACK_CHAT_CONTEXT: ChatContextValue = {
   toggleFollowMode: () => {},
   processFiles: async () => {},
   processKnowledgeBaseFiles: async () => {},
+  removeKnowledgeBaseFile: async () => false,
   removeUpload: async () => {},
   installSkill: async () => {},
   uninstallSkill: async () => {},
 };
 
 function buildSystemPrompt(skills: SkillMeta[]): string {
-  return `You are an AI assistant integrated into Microsoft Excel with full access to read and modify spreadsheet data.
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
+
+  return `IMPORTANT: Today's date is ${today}.
+
+Current date reference: ${today}
+- When answering questions about dates, time, or "today", use ${today} as the current date
+- DO NOT make up or hallucinate dates - always use ${today} when the user asks about today
+- If you need current date/time, use ${today}
+
+You are an AI assistant integrated into Microsoft Excel with full access to read and modify spreadsheet data.
 
 Available tools:
 
@@ -338,18 +390,20 @@ FILES & SHELL:
 - prepare_invoice_batch: Preflight multiple invoice PDFs. Renders lightweight preview pages into the VFS, checks whether embedded PDF text is usable, and returns structured per-file summaries plus preview image paths. Prefer this first when many invoices are attached.
 - bash: Execute bash commands in a sandboxed virtual filesystem. User uploads are in /home/user/uploads/.
   Supports: ls, cat, grep, find, awk, sed, jq, sort, uniq, wc, cut, head, tail, etc.
+- web-search: Search the web directly using the configured search provider. Prefer this for ordinary web lookups.
+- web-fetch: Fetch a URL directly using the configured fetch provider and return readable page content. Prefer this for ordinary page retrieval.
 
-  Custom commands for efficient data transfer (data flows directly, never enters your context):
-  - csv-to-sheet <file> <sheetId> [startCell] [--force] — Import CSV from VFS into spreadsheet. Auto-detects types.
+  Bash custom commands for efficient data transfer (data flows directly, never enters your context):
+  - csv-to-sheet <file> <sheetId> [startCell] [--force] -- Import CSV from VFS into spreadsheet. Auto-detects types.
     Fails if target cells already have data. Use --force to overwrite (confirm with user first).
-  - sheet-to-csv <sheetId> [range] [file] — Export range to CSV. Defaults to full used range if no range given. Prints to stdout if no file given (pipeable).
-  - pdf-to-text <file> <outfile> — Extract text from PDF to file. Use head/grep/tail to read selectively.
-  - pdf-to-images <file> <outdir> [--scale=N] [--pages=1,3,5-8] — Render PDF pages to PNG images. Use for scanned PDFs where text extraction won't work. Then use read to visually inspect the images.
-  - docx-to-text <file> <outfile> — Extract text from DOCX to file.
-  - xlsx-to-csv <file> <outfile> [sheet] — Convert XLSX/XLS/ODS sheet to CSV. Sheet by name or 0-based index.
-  - image-to-sheet <file> <width> <height> <sheetId> [startCell] [--cell-size=N] — Render an image as pixel art in Excel. Downsamples to target size and paints cell backgrounds. Cell size in points (default: 3). Max 500×500. Example: image-to-sheet uploads/logo.png 64 64 1 A1 --cell-size=4
-  - web-search <query> [--max=N] [--region=REGION] [--time=d|w|m|y] [--page=N] [--json] — Search the web. Returns title, URL, and snippet for each result.
-  - web-fetch <url> <outfile> — Fetch a web page and extract its readable content to a file. Use head/grep/tail to read selectively.
+  - sheet-to-csv <sheetId> [range] [file] -- Export range to CSV. Defaults to full used range if no range given. Prints to stdout if no file given (pipeable).
+  - pdf-to-text <file> <outfile> -- Extract text from PDF to file. Use head/grep/tail to read selectively.
+  - pdf-to-images <file> <outdir> [--scale=N] [--pages=1,3,5-8] -- Render PDF pages to PNG images. Use for scanned PDFs where text extraction won't work. Then use read to visually inspect the images.
+  - docx-to-text <file> <outfile> -- Extract text from DOCX to file.
+  - xlsx-to-csv <file> <outfile> [sheet] -- Convert XLSX/XLS/ODS sheet to CSV. Sheet by name or 0-based index.
+  - image-to-sheet <file> <width> <height> <sheetId> [startCell] [--cell-size=N] -- Render an image as pixel art in Excel. Downsamples to target size and paints cell backgrounds. Cell size in points (default: 3). Max 500x500. Example: image-to-sheet uploads/logo.png 64 64 1 A1 --cell-size=4
+  - web-search <query> [--max=N] [--region=REGION] [--time=d|w|m|y] [--page=N] [--json] -- Bash subcommand form for search when you need piping or shell workflows.
+  - web-fetch <url> <outfile> -- Bash subcommand form for fetching into a sandbox file when you need piping or file output.
 
   Examples:
     csv-to-sheet uploads/data.csv 1 A1       # import CSV to sheet 1
@@ -357,9 +411,9 @@ FILES & SHELL:
     sheet-to-csv 1 A1:D100 export.csv         # export specific range to file
     sheet-to-csv 1 | sort -t, -k3 -rn | head -20   # pipe entire sheet to analysis
     cut -d, -f1,3 uploads/data.csv > filtered.csv && csv-to-sheet filtered.csv 1 A1  # filter then import
-    web-search "S&P 500 companies list"       # search the web
-    web-search "USD EUR exchange rate" --max=5 --time=w  # recent results only
-    web-fetch https://example.com/article page.txt && grep -i "revenue" page.txt  # fetch then grep
+    bash: web-search "S&P 500 companies list"       # search the web inside bash
+    bash: web-search "USD EUR exchange rate" --max=5 --time=w  # recent results only inside bash
+    bash: web-fetch https://example.com/article page.txt && grep -i "revenue" page.txt  # fetch then grep
 
   IMPORTANT: When importing file data into the spreadsheet, ALWAYS prefer csv-to-sheet over reading
   the file content and calling set_cell_range. This avoids wasting tokens on data that doesn't need
@@ -374,6 +428,9 @@ FILES & SHELL:
   - When extracting from multipage invoices, read the page images directly and summarize the structured fields the user needs.
 
   EXECUTION HONESTY:
+  - Prefer direct Excel/read/web tools first.
+  - Use the direct web-search and web-fetch tools for ordinary web lookups.
+  - Use bash only when you specifically need shell-style processing, pipes, or sandbox file output. If you use bash for web access, run the web-search/web-fetch subcommands inside the bash tool rather than calling them as separate tools.
   - Never claim edits were completed unless write tools actually succeeded.
   - If any tool returns unknown/error (including JSON with success=false), clearly say it failed.
   - When a write fails, provide the exact failure and ask whether to retry.
@@ -392,7 +449,7 @@ EXCEL WRITE:
   OVERWRITE PROTECTION: Fails by default if target cells already contain data. When this happens:
     1. Tell the user what cells already have data and ask if they want to overwrite.
     2. If yes, retry the exact same call with allow_overwrite=true.
-    Do NOT just report the error and stop — always prompt the user for confirmation first.
+    Do NOT just report the error and stop -- always prompt the user for confirmation first.
 - clear_cell_range: Clear contents or formatting. Useful for clearing merges.
 - copy_to: Copy ranges with formula translation
 - modify_sheet_structure: Insert/delete/hide rows/columns, freeze panes
@@ -445,6 +502,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const followModeRef = useRef(state.providerConfig?.followMode ?? true);
   const skillsRef = useRef<SkillMeta[]>([]);
   const streamingTimeoutRef = useRef<number | null>(null);
+  const replaceKnowledgeBaseToolFiles = useCallback(
+    async (files: KnowledgeBaseFileRecord[]) => {
+      replaceKnowledgeBaseFiles(files);
+    },
+    [],
+  );
 
   const availableProviders = getProviders();
 
@@ -553,7 +616,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               const parts = [...msg.parts];
               const part = parts[partIdx];
               if (part.type === "toolCall") {
-                // Always use "running" status — no pending/awaiting approval
+                // Always use "running" status -- no pending/awaiting approval
                 parts[partIdx] = { ...part, status: "running" as const };
                 messages[i] = { ...msg, parts };
               }
@@ -1006,9 +1069,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     abort();
     agentRef.current?.reset();
     resetVfs();
-    import("../../../lib/tools/query-knowledge-base")
-      .then((m) => m.clearKnowledgeBaseFiles())
-      .catch(console.error);
     if (currentSessionIdRef.current) {
       Promise.all([
         saveSession(currentSessionIdRef.current, []),
@@ -1045,12 +1105,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       agentRef.current?.reset();
       resetVfs();
-      import("../../../lib/tools/query-knowledge-base")
-        .then((m) => m.clearKnowledgeBaseFiles())
-        .catch(console.error);
+      const latestKb = await getLatestKnowledgeBaseFiles(workbookIdRef.current);
+      await replaceKnowledgeBaseToolFiles(latestKb);
       const session = await createSession(workbookIdRef.current);
       currentSessionIdRef.current = session.id;
       await refreshSessions();
+      if (latestKb.length > 0) {
+        await saveSessionKnowledgeBase(session.id, latestKb);
+      }
       setState((prev) => ({
         ...prev,
         messages: [],
@@ -1058,55 +1120,67 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         error: null,
         sessionStats: INITIAL_STATS,
         uploads: [],
+        knowledgeBaseUploads: latestKb.map((kb) => ({
+          name: kb.name,
+          displayName: kb.displayName,
+          createTime: kb.createTime,
+        })),
       }));
     } catch (err) {
       console.error("[Chat] Failed to create session:", err);
     }
-  }, [refreshSessions]);
+  }, [refreshSessions, replaceKnowledgeBaseToolFiles]);
 
-  const switchSession = useCallback(async (sessionId: string) => {
-    if (currentSessionIdRef.current === sessionId) return;
-    if (isStreamingRef.current) {
-      return;
-    }
-    agentRef.current?.reset();
-    import("../../../lib/tools/query-knowledge-base")
-      .then((m) => m.clearKnowledgeBaseFiles())
-      .catch(console.error);
-    try {
-      const [session, vfsFiles] = await Promise.all([
-        getSession(sessionId),
-        loadVfsFiles(sessionId),
-      ]);
-      if (!session) {
-        console.error("[Chat] Session not found:", sessionId);
+  const switchSession = useCallback(
+    async (sessionId: string) => {
+      if (currentSessionIdRef.current === sessionId) return;
+      if (isStreamingRef.current) {
         return;
       }
-      await restoreVfs(vfsFiles);
-      currentSessionIdRef.current = session.id;
+      agentRef.current?.reset();
+      try {
+        const [session, vfsFiles] = await Promise.all([
+          getSession(sessionId),
+          loadVfsFiles(sessionId),
+        ]);
+        if (!session) {
+          console.error("[Chat] Session not found:", sessionId);
+          return;
+        }
+        await restoreVfs(vfsFiles);
+        currentSessionIdRef.current = session.id;
 
-      if (session.agentMessages.length > 0 && agentRef.current) {
-        agentRef.current.replaceMessages(session.agentMessages);
+        if (session.agentMessages.length > 0 && agentRef.current) {
+          agentRef.current.replaceMessages(session.agentMessages);
+        }
+
+        const uploadNames = await listUploads();
+        const stats = deriveStats(session.agentMessages);
+        const latestKb = await getLatestKnowledgeBaseFiles(session.workbookId);
+        await replaceKnowledgeBaseToolFiles(latestKb);
+
+        setState((prev) => ({
+          ...prev,
+          messages: agentMessagesToChatMessages(session.agentMessages),
+          currentSession: session,
+          error: null,
+          sessionStats: {
+            ...stats,
+            contextWindow: prev.sessionStats.contextWindow,
+          },
+          uploads: uploadNames.map((name) => ({ name, size: 0 })),
+          knowledgeBaseUploads: latestKb.map((kb) => ({
+            name: kb.name,
+            displayName: kb.displayName,
+            createTime: kb.createTime,
+          })),
+        }));
+      } catch (err) {
+        console.error("[Chat] Failed to switch session:", err);
       }
-
-      const uploadNames = await listUploads();
-      const stats = deriveStats(session.agentMessages);
-      setState((prev) => ({
-        ...prev,
-        messages: agentMessagesToChatMessages(session.agentMessages),
-        currentSession: session,
-        error: null,
-        sessionStats: {
-          ...stats,
-          contextWindow: prev.sessionStats.contextWindow,
-        },
-        uploads: uploadNames.map((name) => ({ name, size: 0 })),
-        knowledgeBaseUploads: [],
-      }));
-    } catch (err) {
-      console.error("[Chat] Failed to switch session:", err);
-    }
-  }, []);
+    },
+    [replaceKnowledgeBaseToolFiles],
+  );
 
   const deleteCurrentSession = useCallback(async () => {
     if (!currentSessionIdRef.current || !workbookIdRef.current) return;
@@ -1114,9 +1188,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     agentRef.current?.reset();
-    import("../../../lib/tools/query-knowledge-base")
-      .then((m) => m.clearKnowledgeBaseFiles())
-      .catch(console.error);
     const deletedId = currentSessionIdRef.current;
     await Promise.all([
       deleteSession(deletedId),
@@ -1134,6 +1205,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     await refreshSessions();
     const uploadNames = await listUploads();
     const stats = deriveStats(session.agentMessages);
+    const latestKb = await getLatestKnowledgeBaseFiles(session.workbookId);
+    await replaceKnowledgeBaseToolFiles(latestKb);
+
     setState((prev) => ({
       ...prev,
       messages: agentMessagesToChatMessages(session.agentMessages),
@@ -1144,9 +1218,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         contextWindow: prev.sessionStats.contextWindow,
       },
       uploads: uploadNames.map((name) => ({ name, size: 0 })),
-      knowledgeBaseUploads: [],
+      knowledgeBaseUploads: latestKb.map((kb) => ({
+        name: kb.name,
+        displayName: kb.displayName,
+        createTime: kb.createTime,
+      })),
     }));
-  }, [refreshSessions]);
+  }, [refreshSessions, replaceKnowledgeBaseToolFiles]);
 
   const prevStreamingRef = useRef(false);
   useEffect(() => {
@@ -1197,7 +1275,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         skillsRef.current = skills;
         await syncSkillsToVfs();
 
-        // Now apply provider config — agent gets the correct system prompt with skills
+        // Now apply provider config -- agent gets the correct system prompt with skills
         const saved = loadSavedConfig();
         if (saved && isProviderConfigReady(saved)) {
           applyConfig(saved);
@@ -1219,6 +1297,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         const uploadNames = await listUploads();
         const stats = deriveStats(session.agentMessages);
+        const latestKb = await getLatestKnowledgeBaseFiles(session.workbookId);
+        await replaceKnowledgeBaseToolFiles(latestKb);
         setState((prev) => ({
           ...prev,
           messages: agentMessagesToChatMessages(session.agentMessages),
@@ -1230,12 +1310,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             contextWindow: prev.sessionStats.contextWindow,
           },
           uploads: uploadNames.map((name) => ({ name, size: 0 })),
+          knowledgeBaseUploads: latestKb.map((kb) => ({
+            name: kb.name,
+            displayName: kb.displayName,
+            createTime: kb.createTime,
+          })),
         }));
       })
       .catch((err) => {
         console.error("[Chat] Failed to load session:", err);
       });
-  }, [applyConfig]);
+  }, [applyConfig, replaceKnowledgeBaseToolFiles]);
 
   const getSheetName = useCallback(
     (sheetId: number): string | undefined => state.sheetNames[sheetId],
@@ -1250,18 +1335,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
         const MAX_VFS_SIZE = 150 * 1024 * 1024; // 150MB
 
+        let currentVfsSize = state.uploads.reduce((acc, u) => acc + u.size, 0);
+
+        const uploadSizeByName = new Map(
+          state.uploads.map((u) => [u.name, u.size] as const),
+        );
+
         for (const file of files) {
           if (file.size > MAX_FILE_SIZE) {
             throw new Error(
               `File '${file.name}' is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max allowed is 50MB.`,
             );
           }
-
-          const currentVfsSize = state.uploads.reduce(
-            (acc, u) => acc + u.size,
-            0,
-          );
-          if (currentVfsSize + file.size > MAX_VFS_SIZE) {
+          const previousSize = uploadSizeByName.get(file.name) ?? 0;
+          const nextSize = currentVfsSize - previousSize + file.size;
+          if (nextSize > MAX_VFS_SIZE) {
             throw new Error(
               "Virtual Filesystem is full (150MB limit). Please remove some files before uploading more.",
             );
@@ -1270,6 +1358,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const buffer = await file.arrayBuffer();
           const data = new Uint8Array(buffer);
           await writeFile(file.name, data);
+          uploadSizeByName.set(file.name, file.size);
+          currentVfsSize = nextSize;
           setState((prev) => {
             const exists = prev.uploads.some((u) => u.name === file.name);
             if (exists) {
@@ -1335,26 +1425,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const processKnowledgeBaseFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
+    const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
     setState((prev) => ({ ...prev, isUploading: true }));
     try {
       const { uploadFileToGemini } = await import(
         "../../../lib/rag/gemini-file-store"
       );
-      const { addFileToKnowledgeBase } = await import(
-        "../../../lib/tools/query-knowledge-base"
-      );
 
       for (const file of files) {
+        if (file.size > MAX_FILE_SIZE) {
+          throw new Error(
+            `File '${file.name}' is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max allowed is 20MB.`,
+          );
+        }
         const geminiFile = await uploadFileToGemini(file, file.name, file.type);
         addFileToKnowledgeBase(geminiFile);
+      }
 
-        setState((prev) => ({
-          ...prev,
-          knowledgeBaseUploads: [
-            ...prev.knowledgeBaseUploads,
-            { name: geminiFile.name, displayName: geminiFile.displayName },
-          ],
-        }));
+      const knowledgeBaseFiles = getKnowledgeBaseFiles();
+      setState((prev) => ({
+        ...prev,
+        knowledgeBaseUploads: knowledgeBaseFiles.map((kb) => ({
+          name: kb.name,
+          displayName: kb.displayName,
+          createTime: kb.createTime,
+        })),
+      }));
+      if (currentSessionIdRef.current) {
+        await saveSessionKnowledgeBase(
+          currentSessionIdRef.current,
+          knowledgeBaseFiles,
+        );
       }
     } catch (err) {
       console.error("Failed to upload to Knowledge Base:", err);
@@ -1370,6 +1471,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const removeKnowledgeBaseFile = useCallback(async (name: string) => {
+    try {
+      removeKnowledgeBaseFileRecord(name);
+      const remaining = getKnowledgeBaseFiles();
+      setState((prev) => ({
+        ...prev,
+        knowledgeBaseUploads: remaining.map((kb) => ({
+          name: kb.name,
+          displayName: kb.displayName,
+          createTime: kb.createTime,
+        })),
+      }));
+      if (currentSessionIdRef.current) {
+        await saveSessionKnowledgeBase(currentSessionIdRef.current, remaining);
+      }
+      return true;
+    } catch (err) {
+      console.error("Failed to remove Knowledge Base file:", err);
+      setState((prev) => ({
+        ...prev,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Failed to remove Knowledge Base file",
+      }));
+      return false;
+    }
+  }, []);
   const refreshSkillsAndRebuildAgent = useCallback(async () => {
     skillsRef.current = await getInstalledSkills();
     setState((prev) => {
@@ -1448,6 +1577,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         toggleFollowMode,
         processFiles,
         processKnowledgeBaseFiles,
+        removeKnowledgeBaseFile,
         removeUpload,
         installSkill,
         uninstallSkill,

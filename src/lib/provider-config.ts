@@ -3,6 +3,11 @@ import {
   getCachedModelsForProvider,
   getCachedProviders,
 } from "./chat/provider-catalog";
+import {
+  getCredentialStorage,
+  getLocalStorage,
+  getSessionStorage,
+} from "./credential-storage";
 import { loadOAuthCredentials } from "./oauth";
 
 export type ThinkingLevel = "none" | "low" | "medium" | "high";
@@ -148,7 +153,7 @@ export function isProviderConfigReady(config: ProviderConfig): boolean {
   return Boolean(config.apiKey);
 }
 
-// v2 key names ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â abandons the old corrupted stores entirely
+// v2 key names abandon the old corrupted stores entirely
 const STORAGE_KEY = "zanosheets-config-v2";
 const API_KEYS_STORAGE_KEY = "zanosheets-keys-v2";
 const API_KEY_PROVIDER_PREFIX = "zanosheets-key-v2::";
@@ -174,18 +179,32 @@ function parseApiKeysStore(raw: string | null): Record<string, string> {
   return normalized;
 }
 
+function clearApiKeysInStorage(storage: Storage) {
+  storage.removeItem(API_KEYS_STORAGE_KEY);
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (!key) continue;
+    if (key.startsWith(API_KEY_PROVIDER_PREFIX)) {
+      keysToRemove.push(key);
+    }
+  }
+  for (const key of keysToRemove) {
+    storage.removeItem(key);
+  }
+}
+
 // Store API keys per provider
 export function loadApiKey(provider: string): string {
   if (!provider) return "";
+  const storage = getCredentialStorage();
   try {
-    const providerScopedKey = localStorage.getItem(
-      providerKeyStorageKey(provider),
-    );
+    const providerScopedKey = storage.getItem(providerKeyStorageKey(provider));
     if (typeof providerScopedKey === "string") {
       return providerScopedKey;
     }
 
-    const storedData = localStorage.getItem(API_KEYS_STORAGE_KEY);
+    const storedData = storage.getItem(API_KEYS_STORAGE_KEY);
     if (!storedData) return "";
 
     // Detect corruption
@@ -194,7 +213,7 @@ export function loadApiKey(provider: string): string {
       const key = store[provider] || "";
       if (key) {
         try {
-          localStorage.setItem(providerKeyStorageKey(provider), key);
+          storage.setItem(providerKeyStorageKey(provider), key);
         } catch {
           /* ignore migration write failures */
         }
@@ -202,14 +221,14 @@ export function loadApiKey(provider: string): string {
       return key;
     } catch (parseErr) {
       console.error(
-        "[ProviderConfig] loadApiKey: localStorage data is corrupted!",
+        "[ProviderConfig] loadApiKey: credential storage data is corrupted!",
         parseErr,
       );
       // Auto-recover by clearing corrupted data
       console.warn(
-        "[ProviderConfig] loadApiKey: Clearing corrupted localStorage data",
+        "[ProviderConfig] loadApiKey: Clearing corrupted credential storage data",
       );
-      localStorage.removeItem(API_KEYS_STORAGE_KEY);
+      storage.removeItem(API_KEYS_STORAGE_KEY);
       return "";
     }
   } catch (err) {
@@ -220,15 +239,25 @@ export function loadApiKey(provider: string): string {
 
 export function saveApiKey(provider: string, apiKey: string) {
   if (!provider) return;
+  const storage = getCredentialStorage();
   try {
-    localStorage.setItem(providerKeyStorageKey(provider), apiKey);
+    storage.setItem(providerKeyStorageKey(provider), apiKey);
 
-    const currentStore = localStorage.getItem(API_KEYS_STORAGE_KEY);
+    const currentStore = storage.getItem(API_KEYS_STORAGE_KEY);
     const store = parseApiKeysStore(currentStore);
     store[provider] = apiKey;
-    localStorage.setItem(API_KEYS_STORAGE_KEY, JSON.stringify(store));
+    storage.setItem(API_KEYS_STORAGE_KEY, JSON.stringify(store));
   } catch (err) {
     console.error("[ProviderConfig] saveApiKey: ERROR:", err);
+  }
+}
+
+export function clearStoredApiKeys(storage?: Storage) {
+  try {
+    const target = storage ?? getCredentialStorage();
+    clearApiKeysInStorage(target);
+  } catch (err) {
+    console.error("[ProviderConfig] clearStoredApiKeys: ERROR:", err);
   }
 }
 
@@ -284,19 +313,15 @@ export function loadSavedConfig(): ProviderConfig | null {
 
 export function clearAllApiKeys() {
   try {
-    localStorage.removeItem(API_KEYS_STORAGE_KEY);
-    localStorage.removeItem(STORAGE_KEY);
-
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-      if (key.startsWith(API_KEY_PROVIDER_PREFIX)) {
-        keysToRemove.push(key);
-      }
+    const local = getLocalStorage();
+    if (local) {
+      local.removeItem(STORAGE_KEY);
+      clearApiKeysInStorage(local);
     }
-    for (const key of keysToRemove) {
-      localStorage.removeItem(key);
+
+    const session = getSessionStorage();
+    if (session) {
+      clearApiKeysInStorage(session);
     }
   } catch (err) {
     console.error("[ProviderConfig] clearAllApiKeys: ERROR:", err);

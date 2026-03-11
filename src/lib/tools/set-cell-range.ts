@@ -144,7 +144,7 @@ export const setCellRangeTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "set_cell_range");
       const totalCells = params.cells.flat().length;
       if (totalCells > 1000) {
         return toolError(

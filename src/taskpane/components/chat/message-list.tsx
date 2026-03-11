@@ -20,7 +20,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { type DirtyRange, mergeRanges } from "../../../lib/dirty-tracker";
+import {
+  type DirtyRange,
+  mergeRanges,
+  parseDirtyRanges,
+} from "../../../lib/dirty-tracker";
 import { navigateTo } from "../../../lib/excel/api";
 import type { ChatMessage, MessagePart } from "../../../lib/message-utils";
 import { useChat } from "./chat-context";
@@ -75,19 +79,6 @@ const LazyStreamdown = lazy(async () => {
     default: module.Streamdown as ComponentType<MarkdownRendererProps>,
   };
 });
-
-function parseDirtyRanges(result: string | undefined): DirtyRange[] | null {
-  if (!result) return null;
-  try {
-    const parsed = JSON.parse(result);
-    if (parsed._dirtyRanges && Array.isArray(parsed._dirtyRanges)) {
-      return parsed._dirtyRanges;
-    }
-  } catch {
-    // Not valid JSON or no dirty ranges
-  }
-  return null;
-}
 
 function DirtyRangeLink({ range }: { range: DirtyRange }) {
   const { getSheetName } = useChat();

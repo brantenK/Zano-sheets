@@ -1,14 +1,15 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+﻿import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { UserMessage } from "@mariozechner/pi-ai";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import { stripEnrichment } from "../message-utils";
+import type { KnowledgeBaseFileRecord } from "../rag/types";
 import { handleError } from "../silent-error-handler";
-
 export interface ChatSession {
   id: string;
   workbookId: string;
   name: string;
   agentMessages: AgentMessage[];
+  knowledgeBaseFiles: KnowledgeBaseFileRecord[];
   createdAt: number;
   updatedAt: number;
   lastVfsEviction?: number; // Timestamp of when VFS was cleared due to quota
@@ -177,6 +178,7 @@ export async function listSessions(workbookId: string): Promise<ChatSession[]> {
   );
   for (const s of sessions) {
     if (!s.agentMessages) s.agentMessages = [];
+    if (!s.knowledgeBaseFiles) s.knowledgeBaseFiles = [];
   }
   sessions.sort((a, b) => b.updatedAt - a.updatedAt);
   return sessions;
@@ -193,6 +195,7 @@ export async function createSession(
     workbookId,
     name: name ?? "New Chat",
     agentMessages: [],
+    knowledgeBaseFiles: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -207,6 +210,9 @@ export async function getSession(
   const session = await db.get("sessions", sessionId);
   if (session && !session.agentMessages) {
     session.agentMessages = [];
+  }
+  if (session && !session.knowledgeBaseFiles) {
+    session.knowledgeBaseFiles = [];
   }
   return session;
 }
@@ -232,6 +238,35 @@ export async function saveSession(
     name,
     updatedAt: Date.now(),
   });
+}
+
+export async function saveSessionKnowledgeBase(
+  sessionId: string,
+  knowledgeBaseFiles: KnowledgeBaseFileRecord[],
+): Promise<void> {
+  const db = await getDb();
+  const session = await db.get("sessions", sessionId);
+  if (!session) {
+    console.error("[DB] Session not found for KB save:", sessionId);
+    return;
+  }
+  if (!session.knowledgeBaseFiles) session.knowledgeBaseFiles = [];
+
+  await db.put("sessions", {
+    ...session,
+    knowledgeBaseFiles,
+    updatedAt: Date.now(),
+  });
+}
+
+export async function getLatestKnowledgeBaseFiles(
+  workbookId: string,
+): Promise<KnowledgeBaseFileRecord[]> {
+  const sessions = await listSessions(workbookId);
+  for (const s of sessions) {
+    if (s.knowledgeBaseFiles?.length) return s.knowledgeBaseFiles;
+  }
+  return [];
 }
 
 export async function renameSession(

@@ -50,7 +50,13 @@ async function fetchWithProxy(
   url: string,
   proxyUrl?: string,
   init?: RequestInit,
+  options?: { skipProxy?: boolean },
 ): Promise<Response> {
+  // If skipProxy is true, fetch directly (for API calls with CORS support)
+  if (options?.skipProxy) {
+    return await fetch(url, init);
+  }
+
   // Try multiple proxy fallbacks for better reliability
   const proxies = proxyUrl
     ? [proxyUrl]
@@ -263,7 +269,7 @@ const exaFetchProvider: FetchProvider = {
         "x-api-key": apiKey,
       },
       body: JSON.stringify(body),
-    });
+    }, { skipProxy: true }); // Exa API has CORS support, use direct fetch
 
     if (resp.ok) {
       const json = (await resp.json()) as ExaContentsResponse;

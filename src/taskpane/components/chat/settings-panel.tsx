@@ -6,10 +6,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  FolderUp,
   LogOut,
-  Plus,
-  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,12 +15,19 @@ import {
   preloadProviderCatalog,
 } from "../../../lib/chat/provider-catalog";
 import {
+  type CredentialStorageMode,
+  getCredentialStorageMode,
+  getLocalStorage,
+  setCredentialStorageMode,
+} from "../../../lib/credential-storage";
+import {
   clearIntegrationTelemetry,
   loadIntegrationTelemetry,
 } from "../../../lib/integration-telemetry";
 import {
   buildAuthorizationUrl,
   clearAllOAuthCredentials,
+  clearStoredOAuthCredentials,
   exchangeOAuthCode,
   generatePKCE,
   loadOAuthCredentials,
@@ -41,6 +45,7 @@ import {
   API_TYPES,
   type BashMode,
   clearAllApiKeys,
+  clearStoredApiKeys,
   evaluateProviderConfig,
   loadApiKey,
   type ProviderConfig,
@@ -55,6 +60,7 @@ import {
   markSettingsOpen,
 } from "../../../lib/startup-telemetry";
 import {
+  clearStoredWebKeys,
   clearWebConfig,
   loadWebConfig,
   saveWebConfig,
@@ -63,141 +69,42 @@ import { listFetchProviders } from "../../../lib/web/fetch";
 import { listSearchProviders } from "../../../lib/web/search";
 import { useToast } from "../toast/toast-context";
 import { useChat } from "./chat-context";
+import { SkillsManagementPanel } from "./settings/SkillsManagementPanel";
 
-function SkillsSection() {
-  const { state, installSkill, uninstallSkill } = useChat();
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [installing, setInstalling] = useState(false);
-
-  const handleFolderSelect = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files || files.length === 0) return;
-      setInstalling(true);
-      try {
-        await installSkill(Array.from(files));
-      } finally {
-        setInstalling(false);
-        if (folderInputRef.current) folderInputRef.current.value = "";
-      }
-    },
-    [installSkill],
-  );
-
-  const handleFileSelect = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files || files.length === 0) return;
-      setInstalling(true);
-      try {
-        await installSkill(Array.from(files));
-      } finally {
-        setInstalling(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    },
-    [installSkill],
-  );
-
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted) mb-4">
-        agent skills
-      </div>
-
-      <div className="space-y-3">
-        {state.skills.length > 0 ? (
-          <div className="space-y-1">
-            {state.skills.map((skill) => (
-              <div
-                key={skill.name}
-                className="flex items-start justify-between gap-2 px-3 py-2 bg-(--chat-input-bg) border border-(--chat-border)"
-                style={{ borderRadius: "var(--chat-radius)" }}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs text-(--chat-text-primary) font-medium truncate">
-                    {skill.name}
-                  </div>
-                  <div className="text-[10px] text-(--chat-text-muted) mt-0.5 line-clamp-2">
-                    {skill.description}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => uninstallSkill(skill.name)}
-                  className="shrink-0 p-1 text-(--chat-text-muted) hover:text-(--chat-error) transition-colors"
-                  title="Remove skill"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-(--chat-text-muted)">
-            No skills installed
-          </p>
-        )}
-
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => folderInputRef.current?.click()}
-            disabled={installing}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs
-                       bg-(--chat-input-bg) border border-(--chat-border) text-(--chat-text-secondary)
-                       hover:border-(--chat-border-active) hover:text-(--chat-text-primary)
-                       disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ borderRadius: "var(--chat-radius)" }}
-          >
-            <FolderUp size={12} />
-            {installing ? "Installing..." : "Add Folder"}
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={installing}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs
-                       bg-(--chat-input-bg) border border-(--chat-border) text-(--chat-text-secondary)
-                       hover:border-(--chat-border-active) hover:text-(--chat-text-primary)
-                       disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ borderRadius: "var(--chat-radius)" }}
-          >
-            <Plus size={12} />
-            {installing ? "Installing..." : "Add File"}
-          </button>
-        </div>
-        <p className="text-[10px] text-(--chat-text-muted)">
-          Add a skill folder or a single SKILL.md file. Skills must have valid
-          frontmatter with name and description.
-        </p>
-      </div>
-
-      <input
-        ref={folderInputRef}
-        type="file"
-        className="hidden"
-        {...({
-          webkitdirectory: "",
-          directory: "",
-        } as React.InputHTMLAttributes<HTMLInputElement>)}
-        onChange={handleFolderSelect}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".md"
-        className="hidden"
-        onChange={handleFileSelect}
-      />
-    </div>
-  );
-}
+const TELEMETRY_OPT_IN_KEY = "zanosheets-telemetry-opt-in";
+const TOOL_APPROVAL_KEY = "zanosheets-tool-approval";
 
 export function SettingsPanel() {
-  const { state, setProviderConfig } = useChat();
+  const {
+    state,
+    setProviderConfig,
+    processKnowledgeBaseFiles,
+    removeKnowledgeBaseFile,
+  } = useChat();
   const { showToast } = useToast();
+  const kbInputRef = useRef<HTMLInputElement>(null);
+
+  const handleKbSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      await processKnowledgeBaseFiles(Array.from(files));
+      if (kbInputRef.current) kbInputRef.current.value = "";
+    },
+    [processKnowledgeBaseFiles],
+  );
+
+  const handleRemoveKnowledgeBaseFile = useCallback(
+    async (file: { name: string; displayName: string }) => {
+      const ok = await removeKnowledgeBaseFile(file.name);
+      if (ok) {
+        showToast("success", `Removed ${file.displayName}`);
+      } else {
+        showToast("error", `Failed to remove ${file.displayName}`);
+      }
+    },
+    [removeKnowledgeBaseFile, showToast],
+  );
 
   // ALWAYS use provider from context - never local state
   // This prevents desync between what user selects and what gets saved
@@ -212,6 +119,27 @@ export function SettingsPanel() {
   const authMethodValue = state.providerConfig?.authMethod || "apikey";
   const authMethod = authMethodValue;
   const apiType = apiTypeValue;
+  const knowledgeBaseCount = state.knowledgeBaseUploads.length;
+  const knowledgeBaseCountLabel =
+    knowledgeBaseCount === 1 ? "1 file" : `${knowledgeBaseCount} files`;
+  const knowledgeBaseLastUpdated = useMemo(() => {
+    const timestamps = state.knowledgeBaseUploads
+      .map((file) =>
+        file.createTime ? Date.parse(file.createTime) : Number.NaN,
+      )
+      .filter((time) => !Number.isNaN(time));
+    if (timestamps.length === 0) return null;
+    return new Date(Math.max(...timestamps));
+  }, [state.knowledgeBaseUploads]);
+
+  const knowledgeBaseUpdatedLabel = useMemo(() => {
+    if (!knowledgeBaseLastUpdated) return null;
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(knowledgeBaseLastUpdated);
+  }, [knowledgeBaseLastUpdated]);
 
   // Local state only for UI controls (not provider identity)
   const [apiKey, setApiKey] = useState(() => ""); // Will be loaded by useEffect
@@ -233,8 +161,46 @@ export function SettingsPanel() {
   const setProviderConfigRef = useRef<((c: ProviderConfig) => void) | null>(
     null,
   );
+  const [telemetryOptIn, setTelemetryOptIn] = useState(() => {
+    try {
+      return localStorage.getItem(TELEMETRY_OPT_IN_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [toolApprovalPrompt, setToolApprovalPrompt] = useState(() => {
+    try {
+      return localStorage.getItem(TOOL_APPROVAL_KEY) !== "auto";
+    } catch {
+      return true;
+    }
+  });
+
+  const [credentialStorageMode, setCredentialStorageModeState] =
+    useState<CredentialStorageMode>(() => getCredentialStorageMode());
+
+  const toggleTelemetryOptIn = useCallback(() => {
+    const next = !telemetryOptIn;
+    setTelemetryOptIn(next);
+    try {
+      localStorage.setItem(TELEMETRY_OPT_IN_KEY, String(next));
+    } catch {
+      // ignore storage failures
+    }
+  }, [telemetryOptIn]);
+
+  const toggleToolApprovalPrompt = useCallback(() => {
+    const next = !toolApprovalPrompt;
+    setToolApprovalPrompt(next);
+    try {
+      localStorage.setItem(TOOL_APPROVAL_KEY, next ? "prompt" : "auto");
+    } catch {
+      // ignore storage failures
+    }
+  }, [toolApprovalPrompt]);
+
   // Kill-switch: when true the unmount flush is suppressed because a full
-  // reset just wiped storage ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â nothing should be written back.
+  // reset just wiped storage; do not write anything back.
   const didResetRef = useRef(false);
 
   useEffect(() => {
@@ -258,7 +224,7 @@ export function SettingsPanel() {
   // with stale refs before the ref-sync effect updates them).
   useEffect(() => {
     return () => {
-      // Kill-switch: a full reset just happened ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â do NOT write anything back.
+      // Kill-switch: a full reset just happened; do not write anything back.
       if (didResetRef.current) return;
       if (authMethodRef.current !== "apikey") return;
       if (!apiKeyChangedRef.current) return;
@@ -377,7 +343,7 @@ export function SettingsPanel() {
     ) => {
       const p = updates.provider ?? provider;
       // Use the provided API key OR the current in-memory key (via ref).
-      // NEVER fall back to loadApiKey(p) here ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â that reads from storage
+      // NEVER fall back to loadApiKey(p) here. Use the provided key or in-memory value.
       // and can re-inject a stale/cleared key when non-key settings change.
       const k =
         updates.apiKey !== undefined ? updates.apiKey : apiKeyRef.current;
@@ -508,6 +474,49 @@ export function SettingsPanel() {
   const needsBraveKey = webSearchProvider === "brave";
   const needsSerperKey = webSearchProvider === "serper";
   const needsExaKey = webSearchProvider === "exa" || webFetchProvider === "exa";
+  const toggleCredentialStorageMode = useCallback(() => {
+    const next: CredentialStorageMode =
+      credentialStorageMode === "device" ? "session" : "device";
+    setCredentialStorageMode(next);
+    setCredentialStorageModeState(next);
+
+    const deviceStorage = getLocalStorage();
+    if (next === "session" && deviceStorage) {
+      clearStoredApiKeys(deviceStorage);
+      clearStoredOAuthCredentials(deviceStorage);
+      clearStoredWebKeys(deviceStorage);
+    }
+
+    if (provider && authMethodValue === "apikey") {
+      saveApiKey(provider, apiKey);
+    }
+    if (provider && authMethodValue === "oauth" && oauthCredentials) {
+      saveOAuthCredentials(provider, oauthCredentials);
+    }
+
+    saveWebConfig({
+      searchProvider: webSearchProvider,
+      fetchProvider: webFetchProvider,
+      apiKeys: {
+        brave: braveApiKey,
+        serper: serperApiKey,
+        exa: exaApiKey,
+        gemini: geminiApiKey,
+      },
+    });
+  }, [
+    authMethodValue,
+    apiKey,
+    braveApiKey,
+    credentialStorageMode,
+    exaApiKey,
+    geminiApiKey,
+    oauthCredentials,
+    provider,
+    serperApiKey,
+    webFetchProvider,
+    webSearchProvider,
+  ]);
   const perfMetricRows = [
     ["taskpane_interactive_ms", "Taskpane interactive"],
     ["settings_open_ms", "Settings open"],
@@ -859,7 +868,6 @@ export function SettingsPanel() {
               <option value="custom">Custom Endpoint</option>
             </select>
           </label>
-
           {/* Custom Endpoint fields */}
           {isCustom && (
             <>
@@ -1003,8 +1011,7 @@ export function SettingsPanel() {
               </select>
             </label>
           )}
-
-          {/* Auth method toggle ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â providers with OAuth support */}
+          {/* Auth method toggle for providers with OAuth support */}
           {hasOAuth && (
             <div>
               <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
@@ -1038,8 +1045,7 @@ export function SettingsPanel() {
               </div>
             </div>
           )}
-
-          {/* OAuth flow ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â providers with OAuth support */}
+          {/* OAuth flow for providers with OAuth support */}
           {/* OAuth flow for providers with OAuth support */}
           {hasOAuth && authMethod === "oauth" && (
             <div className="space-y-2">
@@ -1148,8 +1154,7 @@ export function SettingsPanel() {
               )}
             </div>
           )}
-
-          {/* API Key input ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â hidden when using OAuth */}
+          {/* API Key input hidden when using OAuth */}
           {showApiKeyInput && (
             <div className="space-y-2">
               <label className="block">
@@ -1171,7 +1176,7 @@ export function SettingsPanel() {
                         provider &&
                         authMethodValue === "apikey"
                       ) {
-                        // Clear immediately ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â no debounce needed, nothing pending
+                        // Clear immediately; no debounce needed.
                         saveApiKey(provider, "");
                         updateAndSync({ apiKey: "" });
                         // apiKeyChanged stays false
@@ -1257,7 +1262,6 @@ export function SettingsPanel() {
               </button>
             </div>
           )}
-
           {/* CORS Proxy */}
           <div className="flex items-center justify-between">
             <div>
@@ -1284,7 +1288,6 @@ export function SettingsPanel() {
               />
             </button>
           </div>
-
           {useProxyValue && (
             <label className="block">
               <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
@@ -1306,7 +1309,6 @@ export function SettingsPanel() {
               </p>
             </label>
           )}
-
           {/* Thinking Level */}
           <div>
             <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
@@ -1377,7 +1379,6 @@ export function SettingsPanel() {
               will avoid it unless needed.
             </p>
           </div>
-
           <div className="border-t border-(--chat-border) pt-4 space-y-3">
             <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted)">
               web tools
@@ -1432,6 +1433,74 @@ export function SettingsPanel() {
                 Used by web-fetch.
               </p>
             </label>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted)">
+                  knowledge base
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] text-(--chat-text-muted)">
+                  <span className="px-2 py-0.5 border border-(--chat-border) bg-(--chat-bg)">
+                    {knowledgeBaseCountLabel}
+                  </span>
+                  {knowledgeBaseUpdatedLabel && (
+                    <span className="px-2 py-0.5 border border-(--chat-border) bg-(--chat-bg)">
+                      Updated {knowledgeBaseUpdatedLabel}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={kbInputRef}
+                  type="file"
+                  multiple
+                  onChange={handleKbSelect}
+                  className="hidden"
+                  accept=".pdf,.txt,.docx,.md,.csv,.json,.xml"
+                />
+                <button
+                  type="button"
+                  onClick={() => kbInputRef.current?.click()}
+                  className="px-3 py-2 text-xs bg-(--chat-input-bg) border border-(--chat-border) text-(--chat-text-primary) hover:border-(--chat-border-active)"
+                  style={{ borderRadius: "var(--chat-radius)" }}
+                >
+                  Upload to Knowledge Base
+                </button>
+                {state.isUploading && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-(--chat-text-muted)">
+                    <span className="h-2 w-2 rounded-full bg-(--chat-accent) animate-pulse" />
+                    Uploading...
+                  </span>
+                )}
+              </div>
+              {state.knowledgeBaseUploads.length > 0 ? (
+                <div className="space-y-1">
+                  {state.knowledgeBaseUploads.map((file) => (
+                    <div
+                      key={file.name}
+                      className="flex items-center justify-between text-[11px] px-2 py-1 bg-(--chat-bg) border border-(--chat-border)"
+                      style={{ borderRadius: "var(--chat-radius)" }}
+                    >
+                      <span className="truncate" title={file.displayName}>
+                        {file.displayName}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveKnowledgeBaseFile(file)}
+                        className="text-(--chat-error) text-[10px] hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10px] text-(--chat-text-muted)">
+                  No knowledge base files yet.
+                </p>
+              )}
+            </div>
 
             {needsBraveKey && (
               <label className="block">
@@ -1498,7 +1567,7 @@ export function SettingsPanel() {
 
             <label className="block mt-4 pt-4 border-t border-(--chat-border)">
               <span className="block text-xs text-(--chat-text-secondary) mb-1.5 flex items-center justify-between">
-                <span>Gemini API Key (Required for RAG)</span>
+                <span>Gemini API Key Override</span>
                 <a
                   href="https://aistudio.google.com/app/apikey"
                   target="_blank"
@@ -1514,13 +1583,17 @@ export function SettingsPanel() {
                 onChange={(e) =>
                   updateWebSettings({ geminiApiKey: e.target.value })
                 }
-                placeholder="Required for AI Knowledge Base"
+                placeholder="Optional if Google is not your active chat provider"
                 className="w-full bg-(--chat-input-bg) text-(--chat-text-primary)
-                         text-sm px-3 py-2 border border-(--chat-border)
-                         placeholder:text-(--chat-text-muted)
-                         focus:outline-none focus:border-(--chat-border-active)"
+                       text-sm px-3 py-2 border border-(--chat-border)
+                       placeholder:text-(--chat-text-muted)
+                       focus:outline-none focus:border-(--chat-border-active)"
                 style={inputStyle}
               />
+              <span className="mt-1 block text-[10px] text-(--chat-text-muted)">
+                Knowledge Base uploads use your active Google provider config
+                first and only fall back to this override key.
+              </span>
             </label>
 
             <div className="pt-1">
@@ -1556,9 +1629,9 @@ export function SettingsPanel() {
                       }
                       placeholder="Optional"
                       className="w-full bg-(--chat-bg) text-(--chat-text-primary)
-                           text-sm px-3 py-2 border border-(--chat-border)
-                           placeholder:text-(--chat-text-muted)
-                           focus:outline-none focus:border-(--chat-border-active)"
+                         text-sm px-3 py-2 border border-(--chat-border)
+                         placeholder:text-(--chat-text-muted)
+                         focus:outline-none focus:border-(--chat-border-active)"
                       style={inputStyle}
                     />
                   </label>
@@ -1577,9 +1650,9 @@ export function SettingsPanel() {
                       }
                       placeholder="Optional"
                       className="w-full bg-(--chat-bg) text-(--chat-text-primary)
-                           text-sm px-3 py-2 border border-(--chat-border)
-                           placeholder:text-(--chat-text-muted)
-                           focus:outline-none focus:border-(--chat-border-active)"
+                         text-sm px-3 py-2 border border-(--chat-border)
+                         placeholder:text-(--chat-text-muted)
+                         focus:outline-none focus:border-(--chat-border-active)"
                       style={inputStyle}
                     />
                   </label>
@@ -1598,16 +1671,16 @@ export function SettingsPanel() {
                       }
                       placeholder="Optional"
                       className="w-full bg-(--chat-bg) text-(--chat-text-primary)
-                           text-sm px-3 py-2 border border-(--chat-border)
-                           placeholder:text-(--chat-text-muted)
-                           focus:outline-none focus:border-(--chat-border-active)"
+                         text-sm px-3 py-2 border border-(--chat-border)
+                         placeholder:text-(--chat-text-muted)
+                         focus:outline-none focus:border-(--chat-border-active)"
                       style={inputStyle}
                     />
                   </label>
                 )}
               </div>
             )}
-          </div>
+          </div>{" "}
         </div>
       </div>
 
@@ -1660,6 +1733,76 @@ export function SettingsPanel() {
           </div>
         )}
       </div>
+      {/* Privacy & Safety */}
+      <div className="border-t border-(--chat-border) pt-4">
+        <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted) mb-2">
+          privacy & safety
+        </div>
+        <div className="space-y-3 text-xs text-(--chat-text-secondary)">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-(--chat-text-primary)">Usage telemetry</div>
+              <div className="text-[10px] text-(--chat-text-muted)">
+                Sends error and performance data to improve the add-in. Requires
+                reload.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={toggleTelemetryOptIn}
+              className={`px-3 py-1.5 text-xs border transition-colors $
+                {telemetryOptIn
+                  ? "border-(--chat-accent) text-(--chat-accent)"
+                  : "border-(--chat-border) text-(--chat-text-muted) hover:text-(--chat-text-primary) hover:border-(--chat-border-active)"}`}
+            >
+              {telemetryOptIn ? "On" : "Off"}
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-(--chat-text-primary)">
+                Confirm tool writes
+              </div>
+              <div className="text-[10px] text-(--chat-text-muted)">
+                Ask before tools that can modify your workbook run.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={toggleToolApprovalPrompt}
+              className={`px-3 py-1.5 text-xs border transition-colors $
+                {toolApprovalPrompt
+                  ? "border-(--chat-accent) text-(--chat-accent)"
+                  : "border-(--chat-border) text-(--chat-text-muted) hover:text-(--chat-text-primary) hover:border-(--chat-border-active)"}`}
+            >
+              {toolApprovalPrompt ? "Prompt" : "Auto"}
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-(--chat-text-primary)">
+                Credential storage
+              </div>
+              <div className="text-[10px] text-(--chat-text-muted)">
+                Store API keys and OAuth tokens on this device or only for this
+                session.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={toggleCredentialStorageMode}
+              className={`px-3 py-1.5 text-xs border transition-colors ${
+                credentialStorageMode === "device"
+                  ? "border-(--chat-accent) text-(--chat-accent)"
+                  : "border-(--chat-border) text-(--chat-text-muted) hover:text-(--chat-text-primary) hover:border-(--chat-border-active)"
+              }`}
+            >
+              {credentialStorageMode === "device" ? "Device" : "Session"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Integration Diagnostics */}
       <div className="border-t border-(--chat-border) pt-4">
         <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted) mb-2">
@@ -1773,7 +1916,7 @@ export function SettingsPanel() {
 
       {/* Skills */}
       <div className="border-t border-(--chat-border) pt-4">
-        <SkillsSection />
+        <SkillsManagementPanel />
       </div>
 
       {/* About */}

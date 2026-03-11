@@ -1,6 +1,15 @@
 import { Type } from "@sinclair/typebox";
-import { extractPdfTextInWorker, renderPdfImagesInWorker } from "../vfs/conversion-worker-client";
-import { fileExists, getFileType, getVfs, listUploads, readFileBuffer } from "../vfs";
+import {
+  fileExists,
+  getFileType,
+  getVfs,
+  listUploads,
+  readFileBuffer,
+} from "../vfs";
+import {
+  extractPdfTextInWorker,
+  renderPdfImagesInWorker,
+} from "../vfs/conversion-worker-client";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 const DEFAULT_PREVIEW_PAGES = 1;
@@ -45,8 +54,10 @@ function classifyTextLayer(text: string): {
   const normalized = normalizePreviewText(text);
   const boxedMatches = normalized.match(/[□▢▣▤▥▦▧▨▩◻◼◽◾]/g) ?? [];
   const alphaNumericMatches = normalized.match(/[A-Za-z0-9]/g) ?? [];
-  const boxedGlyphRatio = normalized.length > 0 ? boxedMatches.length / normalized.length : 0;
-  const textLayerLikelyUsable = alphaNumericMatches.length >= 40 && boxedGlyphRatio < 0.08;
+  const boxedGlyphRatio =
+    normalized.length > 0 ? boxedMatches.length / normalized.length : 0;
+  const textLayerLikelyUsable =
+    alphaNumericMatches.length >= 40 && boxedGlyphRatio < 0.08;
 
   return {
     textLayerLikelyUsable,
@@ -82,14 +93,12 @@ export const prepareInvoiceBatchTool = defineTool({
     ),
     renderScale: Type.Optional(
       Type.Number({
-        description:
-          "Preview render scale between 1 and 2. Default 1.25.",
+        description: "Preview render scale between 1 and 2. Default 1.25.",
       }),
     ),
     textPreviewPages: Type.Optional(
       Type.Number({
-        description:
-          "How many pages to inspect for embedded text. Default 2.",
+        description: "How many pages to inspect for embedded text. Default 2.",
       }),
     ),
     explanation: Type.Optional(
@@ -105,7 +114,10 @@ export const prepareInvoiceBatchTool = defineTool({
         MAX_PREVIEW_PAGES,
         Math.max(1, params.previewPagesPerFile ?? DEFAULT_PREVIEW_PAGES),
       );
-      const textPreviewPages = Math.max(1, params.textPreviewPages ?? DEFAULT_TEXT_PAGES);
+      const textPreviewPages = Math.max(
+        1,
+        params.textPreviewPages ?? DEFAULT_TEXT_PAGES,
+      );
       const renderScale = params.renderScale ?? DEFAULT_RENDER_SCALE;
 
       if (renderScale < 1 || renderScale > 2) {

@@ -6,7 +6,7 @@ import {
   saveConfig,
 } from "../src/lib/provider-config";
 
-// Minimal in-memory localStorage mock — no jsdom required
+// Minimal in-memory localStorage mock -- no jsdom required
 const store: Record<string, string> = {};
 vi.stubGlobal("localStorage", {
   getItem: (k: string) => store[k] ?? null,
@@ -21,9 +21,24 @@ vi.stubGlobal("localStorage", {
   },
 });
 
+const sessionStore: Record<string, string> = {};
+vi.stubGlobal("sessionStorage", {
+  getItem: (k: string) => sessionStore[k] ?? null,
+  setItem: (k: string, v: string) => {
+    sessionStore[k] = v;
+  },
+  removeItem: (k: string) => {
+    delete sessionStore[k];
+  },
+  clear: () => {
+    for (const k of Object.keys(sessionStore)) delete sessionStore[k];
+  },
+});
+
 beforeEach(() => {
   // Clear store between tests
   for (const k of Object.keys(store)) delete store[k];
+  for (const k of Object.keys(sessionStore)) delete sessionStore[k];
 });
 
 describe("loadApiKey / saveApiKey", () => {
@@ -64,8 +79,16 @@ describe("loadSavedConfig", () => {
   });
 
   it("returns null for invalid JSON in storage", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
     store["zanosheets-config-v2"] = "{invalid json}";
     expect(loadSavedConfig()).toBeNull();
+    consoleError.mockRestore();
+    consoleWarn.mockRestore();
   });
 });
 

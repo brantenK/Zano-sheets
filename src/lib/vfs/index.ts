@@ -6,6 +6,7 @@
  */
 
 import type { Bash, InMemoryFs } from "just-bash/browser";
+import { handleError } from "../silent-error-handler";
 
 type VfsEntryStat = {
   isFile: boolean;
@@ -273,8 +274,11 @@ export async function syncBashState(): Promise<void> {
       if (stat.isFile) {
         files.push({ path, data: await bashFs.readFileBuffer(path) });
       }
-    } catch {
-      // skip unreadable entries
+    } catch (err) {
+      // Log but skip unreadable entries during VFS migration
+      handleError(err, "VFS migration: skipping unreadable entry", {
+        logToTelemetry: false,
+      });
     }
   }
 
@@ -390,7 +394,8 @@ export async function listUploads(): Promise<string[]> {
   try {
     const entries = await fs.readdir("/home/user/uploads");
     return entries.filter((entry) => entry !== ".keep");
-  } catch {
+  } catch (err) {
+    handleError(err, "VFS list uploads failed", { logToTelemetry: false });
     return [];
   }
 }

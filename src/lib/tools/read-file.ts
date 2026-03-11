@@ -43,7 +43,12 @@ function parsePdfPageSelection(spec: string): number[] {
     if (rangeParts.length === 2) {
       const start = Number.parseInt(rangeParts[0], 10);
       const end = Number.parseInt(rangeParts[1], 10);
-      if (Number.isNaN(start) || Number.isNaN(end) || start < 1 || end < start) {
+      if (
+        Number.isNaN(start) ||
+        Number.isNaN(end) ||
+        start < 1 ||
+        end < start
+      ) {
         throw new Error(
           `Invalid PDF page selection: ${spec}. Use formats like 1,3,5-8.`,
         );
@@ -95,7 +100,9 @@ function buildPdfCacheKey(
   pages: number[] | null,
   maxPages?: number,
 ): string {
-  const pageKey = pages ? pages.join(",") : `first:${maxPages ?? DEFAULT_PDF_MAX_PAGES}`;
+  const pageKey = pages
+    ? pages.join(",")
+    : `first:${maxPages ?? DEFAULT_PDF_MAX_PAGES}`;
   return `${path}|${fingerprint}|${renderScale}|${pageKey}`;
 }
 
@@ -272,7 +279,10 @@ export const readTool = defineTool({
         }
 
         const previewedPages = result.images.map((image) => image.pageNumber);
-        const remainingPages = Math.max(0, result.pageCount - previewedPages.length);
+        const remainingPages = Math.max(
+          0,
+          result.pageCount - previewedPages.length,
+        );
         const selectionNote = params.pages
           ? `Requested pages: ${previewedPages.join(", ")}.`
           : `Showing first ${previewedPages.length} page(s).`;

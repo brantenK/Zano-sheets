@@ -38,6 +38,7 @@ export default defineConfig(async ({ mode }) => {
       outDir: "../dist",
       emptyOutDir: true,
       sourcemap: true,
+      chunkSizeWarningLimit: 1200,
       rollupOptions: {
         input: {
           taskpane: path.resolve(__dirname, "src/taskpane.html"),

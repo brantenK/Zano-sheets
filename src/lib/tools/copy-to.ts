@@ -28,7 +28,7 @@ export const copyToTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "copy_to");
       const result = await copyTo(
         params.sheetId,
         params.sourceRange,

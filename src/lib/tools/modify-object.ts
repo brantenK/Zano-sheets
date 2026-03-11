@@ -86,7 +86,7 @@ export const modifyObjectTool = defineTool({
   },
   execute: async (toolCallId, params) => {
     try {
-      await checkToolApproval(toolCallId);
+      await checkToolApproval(toolCallId, "modify_object");
       const result = await modifyObject(params);
       return toolSuccess(result);
     } catch (error) {

@@ -5,7 +5,7 @@ import type {
 } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { DirtyRange } from "../../../lib/dirty-tracker";
+import { parseDirtyRanges } from "../../../lib/dirty-tracker";
 import { navigateTo } from "../../../lib/excel/api";
 import {
   type ChatMessage,
@@ -40,19 +40,6 @@ type VfsModule = typeof import("../../../lib/vfs");
 
 let agentRuntimePromise: Promise<AgentRuntime> | null = null;
 let vfsModulePromise: Promise<VfsModule> | null = null;
-
-function parseDirtyRanges(result: string | undefined): DirtyRange[] | null {
-  if (!result) return null;
-  try {
-    const parsed = JSON.parse(result);
-    if (parsed._dirtyRanges && Array.isArray(parsed._dirtyRanges)) {
-      return parsed._dirtyRanges;
-    }
-  } catch {
-    // Not valid JSON or no dirty ranges
-  }
-  return null;
-}
 
 export async function checkToolApproval(_toolCallId: string): Promise<void> {
   return;
@@ -209,8 +196,10 @@ FILES & SHELL:
 - bash: Execute bash commands in a sandboxed virtual filesystem. User uploads are in /home/user/uploads/.
   Supports: ls, cat, grep, find, awk, sed, jq, sort, uniq, wc, cut, head, tail, etc.
   Bash usage mode: ${bashMode === "on-demand" ? "on-demand only. Do not use bash unless the user explicitly asks for shell-style work or the direct tools cannot finish the task." : "automatic. You may use bash when it is the best available tool."}
+- web-search: Search the web directly using the configured search provider. Prefer this for ordinary web lookups.
+- web-fetch: Fetch a URL directly using the configured fetch provider and return readable page content. Prefer this for ordinary page retrieval.
 
-  Custom commands for efficient data transfer (data flows directly, never enters your context):
+  Bash custom commands for efficient data transfer (data flows directly, never enters your context):
   - csv-to-sheet <file> <sheetId> [startCell] [--force] - Import CSV from VFS into spreadsheet. Auto-detects types.
     Fails if target cells already have data. Use --force to overwrite (confirm with user first).
   - sheet-to-csv <sheetId> [range] [file] - Export range to CSV. Defaults to full used range if no range given. Prints to stdout if no file given (pipeable).
@@ -219,8 +208,8 @@ FILES & SHELL:
   - docx-to-text <file> <outfile> - Extract text from DOCX to file.
   - xlsx-to-csv <file> <outfile> [sheet] - Convert XLSX/XLS/ODS sheet to CSV. Sheet by name or 0-based index.
   - image-to-sheet <file> <width> <height> <sheetId> [startCell] [--cell-size=N] - Render an image as pixel art in Excel. Downsamples to target size and paints cell backgrounds. Cell size in points (default: 3). Max 500x500. Example: image-to-sheet uploads/logo.png 64 64 1 A1 --cell-size=4
-  - web-search <query> [--max=N] [--region=REGION] [--time=d|w|m|y] [--page=N] [--json] - Search the web. Returns title, URL, and snippet for each result.
-  - web-fetch <url> <outfile> - Fetch a web page and extract its readable content to a file. Use head/grep/tail to read selectively.
+  - web-search <query> [--max=N] [--region=REGION] [--time=d|w|m|y] [--page=N] [--json] - Bash subcommand form for search when you need piping or shell workflows.
+  - web-fetch <url> <outfile> - Bash subcommand form for fetching into a sandbox file when you need piping or file output.
 
   Examples:
     csv-to-sheet uploads/data.csv 1 A1       # import CSV to sheet 1
@@ -228,9 +217,9 @@ FILES & SHELL:
     sheet-to-csv 1 A1:D100 export.csv         # export specific range to file
     sheet-to-csv 1 | sort -t, -k3 -rn | head -20   # pipe entire sheet to analysis
     cut -d, -f1,3 uploads/data.csv > filtered.csv && csv-to-sheet filtered.csv 1 A1  # filter then import
-    web-search "S&P 500 companies list"       # search the web
-    web-search "USD EUR exchange rate" --max=5 --time=w  # recent results only
-    web-fetch https://example.com/article page.txt && grep -i "revenue" page.txt  # fetch then grep
+    bash: web-search "S&P 500 companies list"       # search the web inside bash
+    bash: web-search "USD EUR exchange rate" --max=5 --time=w  # recent results only inside bash
+    bash: web-fetch https://example.com/article page.txt && grep -i "revenue" page.txt  # fetch then grep
 
   IMPORTANT: When importing file data into the spreadsheet, ALWAYS prefer csv-to-sheet over reading
   the file content and calling set_cell_range. This avoids wasting tokens on data that doesn't need
@@ -245,7 +234,9 @@ FILES & SHELL:
   - When extracting from multipage invoices, read the page images directly and summarize the structured fields the user needs.
 
   EXECUTION HONESTY:
-  - Prefer direct Excel/read/web tools first. Use bash only when it is explicitly needed for shell-style processing.
+  - Prefer direct Excel/read/web tools first.
+  - Use the direct web-search and web-fetch tools for ordinary web lookups.
+  - Use bash only when you specifically need shell-style processing, pipes, or sandbox file output. If you use bash for web access, run the web-search/web-fetch subcommands inside the bash tool rather than calling them as separate tools.
   - Never claim edits were completed unless write tools actually succeeded.
   - If any tool returns unknown/error (including JSON with success=false), clearly say it failed.
   - When a write fails, provide the exact failure and ask whether to retry.
