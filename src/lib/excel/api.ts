@@ -126,12 +126,9 @@ export async function getWorksheetById(
   sheetId: number,
 ): Promise<Excel.Worksheet | null> {
   const sheets = context.workbook.worksheets;
-  sheets.load("items");
-  await resilientSync(context);
-
-  for (const sheet of sheets.items) {
-    sheet.load("id");
-  }
+  // ⚡ Bolt Optimization: load id property directly on the collection to save a context.sync() round trip
+  // on every single tool call that references a worksheet
+  sheets.load("id");
   await resilientSync(context);
 
   const idMap = await preloadSheetIds(sheets.items);
@@ -430,12 +427,9 @@ export async function searchData(
 
   return runWithRetry(async (context) => {
     const sheets = context.workbook.worksheets;
-    sheets.load("items");
-    await resilientSync(context);
-
-    for (const sheet of sheets.items) {
-      sheet.load("id");
-    }
+    // ⚡ Bolt Optimization: Load id property directly on the collection to prevent
+    // an extra Office.js sync round-trip on every sheet access.
+    sheets.load("id");
     await resilientSync(context);
 
     const stableIdMap = await preloadSheetIds(sheets.items);
@@ -554,12 +548,9 @@ export async function getAllObjects(
 
   return runWithRetry(async (context) => {
     const sheets = context.workbook.worksheets;
-    sheets.load("items");
-    await resilientSync(context);
-
-    for (const sheet of sheets.items) {
-      sheet.load("id");
-    }
+    // ⚡ Bolt Optimization: Load id property directly on the collection to prevent
+    // an extra Office.js sync round-trip on every sheet access.
+    sheets.load("id");
     await resilientSync(context);
 
     const stableIdMap = await preloadSheetIds(sheets.items);
