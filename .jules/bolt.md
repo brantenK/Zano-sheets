@@ -1,0 +1,3 @@
+## 2024-05-16 - IndexedDB VFS N+1 Bottleneck Fix
+**Learning:** Sequential `await` calls in IndexedDB transactions for adding/deleting multiple `vfsFiles` or `skillFiles` create an N+1 query bottleneck. Unlike some DB drivers that batch internally, IDB requires explicit concurrent execution via `Promise.all` to avoid blocking the main thread during large session evictions or bulk file generation.
+**Action:** Always wrap multiple IndexedDB `add`, `put`, or `delete` operations in `Promise.all()` when working with VFS/Skill files in this architecture, reducing O(N) transaction time to O(1).

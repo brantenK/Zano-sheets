@@ -17,8 +17,6 @@ export { resizeRangeTool } from "./resize-range";
 export { screenshotRangeTool } from "./screenshot-range";
 export { searchDataTool } from "./search-data";
 export { setCellRangeTool } from "./set-cell-range";
-export { webFetchTool } from "./web-fetch";
-export { webSearchTool } from "./web-search";
 export {
   defineTool,
   type ToolResult,
@@ -26,6 +24,8 @@ export {
   toolSuccess,
   toolText,
 } from "./types";
+export { webFetchTool } from "./web-fetch";
+export { webSearchTool } from "./web-search";
 
 import { bashTool } from "./bash";
 import { clearCellRangeTool } from "./clear-cell-range";
