@@ -1,4 +1,6 @@
 import type { Api, AssistantMessage, Model } from "@mariozechner/pi-ai";
+import { resolveAgentModel } from "../chat/model-resolution";
+import { streamSimple } from "../chat/provider-stream";
 import {
   loadOAuthCredentials,
   refreshOAuthToken,
@@ -10,8 +12,6 @@ import {
   loadSavedConfig,
   type ThinkingLevel,
 } from "../provider-config";
-import { resolveAgentModel } from "../chat/model-resolution";
-import { streamSimple } from "../chat/provider-stream";
 import { loadWebConfig } from "../web/config";
 import { fetchWeb } from "../web/fetch";
 import { searchWeb } from "../web/search";
@@ -62,11 +62,9 @@ function buildSearchProviderOrder(
   return uniqueProviders([preferredProvider || "ddgs", ...configuredFallbacks]);
 }
 
-function thinkingToReasoning(level: ThinkingLevel):
-  | "low"
-  | "medium"
-  | "high"
-  | undefined {
+function thinkingToReasoning(
+  level: ThinkingLevel,
+): "low" | "medium" | "high" | undefined {
   if (level === "none") return undefined;
   return level;
 }
@@ -156,7 +154,9 @@ async function getActiveApiKey(
 
   const creds = loadOAuthCredentials(config.provider);
   if (!creds) {
-    throw new Error("OAuth credentials are missing. Reconnect the provider in Settings.");
+    throw new Error(
+      "OAuth credentials are missing. Reconnect the provider in Settings.",
+    );
   }
 
   if (!forceRefresh && Date.now() < creds.expires) {
@@ -179,10 +179,15 @@ async function synthesizeResearch(
 ): Promise<string> {
   const resolvedModel = resolveAgentModel(config);
   if (!resolvedModel.baseModel) {
-    throw new Error(resolvedModel.error || "Unable to resolve the configured model.");
+    throw new Error(
+      resolvedModel.error || "Unable to resolve the configured model.",
+    );
   }
 
-  const model = applyProxyToModel(resolvedModel.baseModel, config) as Model<Api>;
+  const model = applyProxyToModel(
+    resolvedModel.baseModel,
+    config,
+  ) as Model<Api>;
   let apiKey = await getActiveApiKey(config);
   let lastError: unknown = null;
 
@@ -206,7 +211,14 @@ async function synthesizeResearch(
       );
       const message = (await stream.result()) as AssistantMessage;
       const text = message.content
-        .filter((part): part is Extract<AssistantMessage["content"][number], { type: "text" }> => part.type === "text")
+        .filter(
+          (
+            part,
+          ): part is Extract<
+            AssistantMessage["content"][number],
+            { type: "text" }
+          > => part.type === "text",
+        )
         .map((part) => part.text)
         .join("\n")
         .trim();
@@ -236,7 +248,9 @@ async function synthesizeResearch(
       if (isRetryableProviderError(err) && attempt < MAX_PROVIDER_RETRIES) {
         const baseDelayMs = 2 ** attempt * 1000;
         const jitterMs = Math.floor(Math.random() * 300);
-        await new Promise((resolve) => setTimeout(resolve, baseDelayMs + jitterMs));
+        await new Promise((resolve) =>
+          setTimeout(resolve, baseDelayMs + jitterMs),
+        );
         continue;
       }
 
@@ -315,7 +329,9 @@ export async function executeDeepResearch(
       if (results.length > 0) {
         break;
       }
-      onProgress(`No results returned by ${providerId}. Trying next provider...`);
+      onProgress(
+        `No results returned by ${providerId}. Trying next provider...`,
+      );
     } catch (err) {
       lastSearchError = err;
       onProgress(

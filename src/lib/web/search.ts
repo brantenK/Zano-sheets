@@ -36,7 +36,9 @@ function normalizeRegion(region?: string): {
   };
 }
 
-function toBraveFreshness(timelimit?: SearchOptions["timelimit"]): string | null {
+function toBraveFreshness(
+  timelimit?: SearchOptions["timelimit"],
+): string | null {
   switch (timelimit) {
     case "d":
       return "pd";
@@ -306,14 +308,19 @@ const serperProvider: SearchProvider = {
 
     const endpoint = "https://google.serper.dev/search";
 
-    const resp = await fetchWithProxy(endpoint, context, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": apiKey,
+    const resp = await fetchWithProxy(
+      endpoint,
+      context,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-KEY": apiKey,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    }, { skipProxy: true }); // Serper API has CORS support, use direct fetch
+      { skipProxy: true },
+    ); // Serper API has CORS support, use direct fetch
 
     if (!resp.ok) {
       throw new Error(
@@ -352,14 +359,19 @@ const exaProvider: SearchProvider = {
 
     const targetUrl = "https://api.exa.ai/search";
 
-    const resp = await fetchWithProxy(targetUrl, context, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
+    const resp = await fetchWithProxy(
+      targetUrl,
+      context,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    }, { skipProxy: true }); // Exa API has CORS support, use direct fetch
+      { skipProxy: true },
+    ); // Exa API has CORS support, use direct fetch
 
     if (!resp.ok) {
       throw new Error(`Exa search failed: ${resp.status} ${resp.statusText}`);
