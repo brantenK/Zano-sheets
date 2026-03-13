@@ -49,7 +49,7 @@ export function createTrackedContext(
 
       try {
         // Get the stable ID for this sheet (persisted in document settings)
-        pending.sheet.load("id");
+        pending.sheet.load("id", { store: true });
         await resilientSync(context);
         pending.sheetIdRef.id = await getStableSheetId(pending.sheet.id);
       } catch {
@@ -348,7 +348,7 @@ export function createTrackedContext(
               worksheetProxies.set(sheet, { proxy, sheetIdRef });
 
               // Queue the sheet.load("id") - will be resolved when user calls context.sync()
-              sheet.load("id");
+              sheet.load("id", { store: true });
               pendingSheetRefs.push({ sheet, sheetIdRef });
 
               return proxy;
@@ -359,7 +359,7 @@ export function createTrackedContext(
             const sheetIdRef = { id: -1 };
             const proxy = createTrackedWorksheetWithRef(sheet, sheetIdRef);
             worksheetProxies.set(sheet, { proxy, sheetIdRef });
-            sheet.load("id");
+            sheet.load("id", { store: true });
             pendingSheetRefs.push({ sheet, sheetIdRef });
             return proxy;
           };

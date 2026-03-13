@@ -88,6 +88,46 @@ export function parseRangeAddress(address: string): {
   };
 }
 
+export function parseSheetQualifiedAddress(address: string): {
+  sheetName?: string;
+  rangeAddress: string;
+} {
+  const lastBang = address.lastIndexOf("!");
+  if (lastBang === -1) {
+    return { rangeAddress: address };
+  }
+
+  const rawSheetName = address.slice(0, lastBang).trim();
+  const rangeAddress = address.slice(lastBang + 1).trim();
+
+  if (!rawSheetName) {
+    return { rangeAddress };
+  }
+
+  const sheetName =
+    rawSheetName.startsWith("'") && rawSheetName.endsWith("'")
+      ? rawSheetName.slice(1, -1).replace(/''/g, "'")
+      : rawSheetName;
+
+  return {
+    sheetName,
+    rangeAddress,
+  };
+}
+
+function getRangeFromAddress(
+  context: Excel.RequestContext,
+  currentSheet: Excel.Worksheet,
+  address: string,
+): Excel.Range {
+  const { sheetName, rangeAddress } = parseSheetQualifiedAddress(address);
+  const targetSheet = sheetName
+    ? context.workbook.worksheets.getItem(sheetName)
+    : currentSheet;
+
+  return targetSheet.getRange(rangeAddress);
+}
+
 function excelColorToHex(
   color: Excel.RangeFont | Excel.RangeFill,
 ): string | undefined {
@@ -130,7 +170,7 @@ export async function getWorksheetById(
   await resilientSync(context);
 
   for (const sheet of sheets.items) {
-    sheet.load("id");
+    sheet.load("id", { store: true });
   }
   await resilientSync(context);
 
@@ -150,7 +190,7 @@ export async function getWorksheetStableId(
   context: Excel.RequestContext,
   sheet: Excel.Worksheet,
 ): Promise<number> {
-  sheet.load("id");
+  sheet.load("id", { store: true });
   await resilientSync(context);
   return getStableSheetId(sheet.id);
 }
@@ -434,7 +474,7 @@ export async function searchData(
     await resilientSync(context);
 
     for (const sheet of sheets.items) {
-      sheet.load("id");
+      sheet.load("id", { store: true });
     }
     await resilientSync(context);
 
@@ -558,7 +598,7 @@ export async function getAllObjects(
     await resilientSync(context);
 
     for (const sheet of sheets.items) {
-      sheet.load("id");
+      sheet.load("id", { store: true });
     }
     await resilientSync(context);
 
@@ -572,7 +612,7 @@ export async function getAllObjects(
       : sheets.items;
 
     for (const sheet of sheetsToCheck) {
-      sheet.load("name,id");
+      sheet.load("name,id", { store: true });
       const charts = sheet.charts;
       const pivotTables = sheet.pivotTables;
       charts.load("items");
@@ -583,7 +623,7 @@ export async function getAllObjects(
         stableIdMap.get(sheet.id) || (await getStableSheetId(sheet.id));
 
       for (const chart of charts.items) {
-        chart.load("id,name");
+        chart.load("id,name", { store: true });
         await resilientSync(context);
         if (!id || chart.id === id) {
           objects.push({
@@ -597,7 +637,7 @@ export async function getAllObjects(
       }
 
       for (const pivot of pivotTables.items) {
-        pivot.load("id,name");
+        pivot.load("id,name", { store: true });
         await resilientSync(context);
         if (!id || pivot.id === id) {
           objects.push({
@@ -1522,7 +1562,11 @@ export async function modifyObject(params: {
           const resolveChartType = (t: string): Excel.ChartType =>
             (Excel.ChartType[t as keyof typeof Excel.ChartType] ??
               t) as Excel.ChartType;
-          const sourceRange = sheet.getRange(properties.source);
+          const sourceRange = getRangeFromAddress(
+            context,
+            sheet,
+            properties.source,
+          );
           const chart = charts.add(
             resolveChartType(properties.chartType),
             sourceRange,
@@ -1530,10 +1574,14 @@ export async function modifyObject(params: {
           );
           if (properties.title) chart.title.text = properties.title;
           if (properties.anchor) {
-            const anchorCell = sheet.getRange(properties.anchor);
+            const anchorCell = getRangeFromAddress(
+              context,
+              sheet,
+              properties.anchor,
+            );
             chart.setPosition(anchorCell);
           }
-          chart.load("id");
+          chart.load("id", { store: true });
           await resilientSync(context);
           return { success: true, operation, id: chart.id };
         }
@@ -1546,11 +1594,19 @@ export async function modifyObject(params: {
             ] ?? properties.chartType) as Excel.ChartType;
           }
           if (properties?.source) {
-            const sourceRange = sheet.getRange(properties.source);
+            const sourceRange = getRangeFromAddress(
+              context,
+              sheet,
+              properties.source,
+            );
             chart.setData(sourceRange, Excel.ChartSeriesBy.auto);
           }
           if (properties?.anchor) {
-            const anchorCell = sheet.getRange(properties.anchor);
+            const anchorCell = getRangeFromAddress(
+              context,
+              sheet,
+              properties.anchor,
+            );
             chart.setPosition(anchorCell);
           }
           if (properties?.title) chart.title.text = properties.title;
@@ -1573,8 +1629,16 @@ export async function modifyObject(params: {
           if (!properties?.source || !properties?.range) {
             throw new Error("PivotTable creation requires source and range");
           }
-          const sourceRange = sheet.getRange(properties.source);
-          const destRange = sheet.getRange(properties.range);
+          const sourceRange = getRangeFromAddress(
+            context,
+            sheet,
+            properties.source,
+          );
+          const destRange = getRangeFromAddress(
+            context,
+            sheet,
+            properties.range,
+          );
           const pivot = sheet.pivotTables.add(
             properties.name || "PivotTable",
             sourceRange,
@@ -1583,7 +1647,7 @@ export async function modifyObject(params: {
           if (properties?.rows || properties?.columns || properties?.values) {
             await applyPivotFields(context, pivot, properties);
           }
-          pivot.load("id");
+          pivot.load("id", { store: true });
           await resilientSync(context);
           return { success: true, operation, id: pivot.id };
         }

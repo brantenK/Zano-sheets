@@ -33,11 +33,32 @@ const DEFAULT_WEB_CONFIG: WebConfig = {
 
 type WebPreferences = Pick<WebConfig, "searchProvider" | "fetchProvider">;
 
-function parseWebPreferences(raw: string): WebPreferences {
+function deriveDefaultWebPreferences(
+  apiKeys: WebConfig["apiKeys"],
+): WebPreferences {
+  const searchProvider = apiKeys.exa
+    ? "exa"
+    : apiKeys.brave
+      ? "brave"
+      : apiKeys.serper
+        ? "serper"
+        : DEFAULT_WEB_CONFIG.searchProvider;
+  const fetchProvider = apiKeys.exa ? "exa" : DEFAULT_WEB_CONFIG.fetchProvider;
+
+  return {
+    searchProvider,
+    fetchProvider,
+  };
+}
+
+function parseWebPreferences(
+  raw: string,
+  defaults: WebPreferences,
+): WebPreferences {
   const parsed = JSON.parse(raw) as Partial<WebConfig>;
   return {
-    searchProvider: parsed.searchProvider || DEFAULT_WEB_CONFIG.searchProvider,
-    fetchProvider: parsed.fetchProvider || DEFAULT_WEB_CONFIG.fetchProvider,
+    searchProvider: parsed.searchProvider || defaults.searchProvider,
+    fetchProvider: parsed.fetchProvider || defaults.fetchProvider,
   };
 }
 
@@ -53,22 +74,19 @@ function parseWebKeys(raw: string): WebConfig["apiKeys"] {
   return { ...DEFAULT_WEB_CONFIG.apiKeys, ...normalized };
 }
 
-function loadWebPreferences(): WebPreferences {
+function loadWebPreferences(defaults: WebPreferences): WebPreferences {
   try {
     const local = getLocalStorage();
     const currentRaw = local?.getItem(STORAGE_KEY) ?? null;
-    if (currentRaw) return parseWebPreferences(currentRaw);
+    if (currentRaw) return parseWebPreferences(currentRaw, defaults);
 
     const legacyRaw = local?.getItem(LEGACY_STORAGE_KEY) ?? null;
     if (!legacyRaw) {
-      return {
-        searchProvider: DEFAULT_WEB_CONFIG.searchProvider,
-        fetchProvider: DEFAULT_WEB_CONFIG.fetchProvider,
-      };
+      return defaults;
     }
 
     const legacyParsed = JSON.parse(legacyRaw) as Partial<WebConfig>;
-    const prefs = parseWebPreferences(legacyRaw);
+    const prefs = parseWebPreferences(legacyRaw, defaults);
 
     try {
       local?.setItem(STORAGE_KEY, JSON.stringify(prefs));
@@ -91,10 +109,7 @@ function loadWebPreferences(): WebPreferences {
 
     return prefs;
   } catch {
-    return {
-      searchProvider: DEFAULT_WEB_CONFIG.searchProvider,
-      fetchProvider: DEFAULT_WEB_CONFIG.fetchProvider,
-    };
+    return defaults;
   }
 }
 
@@ -123,8 +138,8 @@ export function clearStoredWebKeys(storage?: Storage) {
 }
 
 export function loadWebConfig(): WebConfig {
-  const prefs = loadWebPreferences();
   const keys = loadWebKeys();
+  const prefs = loadWebPreferences(deriveDefaultWebPreferences(keys));
   return { ...prefs, apiKeys: keys };
 }
 
