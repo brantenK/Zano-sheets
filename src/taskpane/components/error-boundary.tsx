@@ -9,6 +9,8 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   errorMessage: string;
+  errorStack: string;
+  showDetails: boolean;
 }
 
 export class ErrorBoundary extends Component<
@@ -18,12 +20,16 @@ export class ErrorBoundary extends Component<
   state: ErrorBoundaryState = {
     hasError: false,
     errorMessage: "",
+    errorStack: "",
+    showDetails: false,
   };
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return {
       hasError: true,
       errorMessage: error.message || "Something went wrong",
+      errorStack: error.stack ?? "",
+      showDetails: false,
     };
   }
 
@@ -35,17 +41,23 @@ export class ErrorBoundary extends Component<
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, errorMessage: "" });
+    this.setState({ hasError: false, errorMessage: "", errorStack: "", showDetails: false });
   };
 
   private handleReload = () => {
     window.location.reload();
   };
 
+  private toggleDetails = () => {
+    this.setState((prev) => ({ showDetails: !prev.showDetails }));
+  };
+
   render() {
     if (!this.state.hasError) {
       return this.props.children;
     }
+
+    const { errorMessage, errorStack, showDetails } = this.state;
 
     return (
       <div
@@ -59,9 +71,6 @@ export class ErrorBoundary extends Component<
           <div className="text-sm text-(--chat-text-primary)">
             The chat UI hit an unexpected error.
           </div>
-          <pre className="max-h-48 overflow-auto text-xs text-(--chat-error) bg-(--chat-bg) border border-(--chat-border) p-2 whitespace-pre-wrap break-words">
-            {this.state.errorMessage}
-          </pre>
           <div className="flex gap-2">
             <button
               type="button"
@@ -78,6 +87,18 @@ export class ErrorBoundary extends Component<
               Reload add-in
             </button>
           </div>
+          <button
+            type="button"
+            onClick={this.toggleDetails}
+            className="text-xs text-(--chat-text-muted) underline underline-offset-2 hover:text-(--chat-text-secondary)"
+          >
+            {showDetails ? "Hide details" : "Show details"}
+          </button>
+          {showDetails && (
+            <pre className="max-h-48 overflow-auto text-xs text-(--chat-error) bg-(--chat-bg) border border-(--chat-border) p-2 whitespace-pre-wrap break-words">
+              {errorStack || errorMessage}
+            </pre>
+          )}
         </div>
       </div>
     );
