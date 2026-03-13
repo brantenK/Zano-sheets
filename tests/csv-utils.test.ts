@@ -3,7 +3,7 @@ import {
   buildCsvFromVisibleRange,
   escapeCsvValue,
 } from "../src/lib/excel/csv-utils";
-import { shouldScheduleStreamCompletionFallback } from "../src/lib/chat/stream-fallback";
+import { withChunkHeartbeat } from "../src/lib/chat/stream-fallback";
 
 let customCommandTestHelpers: {
   buildRangeAddress: (startCell: string, rowCount: number, colCount: number) => string;
@@ -136,10 +136,49 @@ describe("custom command helpers", () => {
   });
 });
 
-describe("shouldScheduleStreamCompletionFallback", () => {
-  it("requires message end and no active tool calls", () => {
-    expect(shouldScheduleStreamCompletionFallback(false, 0)).toBe(false);
-    expect(shouldScheduleStreamCompletionFallback(true, 1)).toBe(false);
-    expect(shouldScheduleStreamCompletionFallback(true, 0)).toBe(true);
+describe("withChunkHeartbeat", () => {
+  it("passes through events from a normal stream", async () => {
+    async function* gen() {
+      yield "a";
+      yield "b";
+      yield "c";
+    }
+    const wrapped = withChunkHeartbeat(gen(), 1000);
+    const results: string[] = [];
+    for await (const item of wrapped) {
+      results.push(item);
+    }
+    expect(results).toEqual(["a", "b", "c"]);
+  });
+
+  it("throws on timeout when stream stalls", async () => {
+    let cancelled = false;
+    async function* stall() {
+      try {
+        yield "first";
+        // Stall with a cancellable promise
+        await new Promise((_, reject) => {
+          const check = setInterval(() => {
+            if (cancelled) {
+              clearInterval(check);
+              reject(new Error("cancelled"));
+            }
+          }, 10);
+        });
+      } finally {
+        cancelled = true;
+      }
+    }
+    const wrapped = withChunkHeartbeat(stall(), 50);
+    const results: string[] = [];
+    try {
+      for await (const item of wrapped) {
+        results.push(item);
+      }
+    } catch (err) {
+      expect((err as Error).message).toMatch(/Stream stalled/);
+    }
+    cancelled = true;
+    expect(results).toEqual(["first"]);
   });
 });

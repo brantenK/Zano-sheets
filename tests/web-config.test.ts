@@ -69,4 +69,14 @@ describe("web config storage", () => {
     expect(loaded.fetchProvider).toBe("exa");
     expect(loaded.apiKeys.serper).toBe("serper-key");
   });
+
+  it("prefers managed providers by default when keys are present but no preferences are saved", () => {
+    store["zanosheets-web-keys-v1"] = JSON.stringify({
+      apiKeys: { exa: "exa-key", brave: "brave-key" },
+    });
+
+    const loaded = loadWebConfig();
+    expect(loaded.searchProvider).toBe("exa");
+    expect(loaded.fetchProvider).toBe("exa");
+  });
 });

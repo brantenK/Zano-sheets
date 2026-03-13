@@ -80,6 +80,62 @@ describe("webSearchTool", () => {
     expect(result.content[0].text).toContain("1. Match results");
     expect(result.content[0].text).toContain("https://example.com/matches");
   });
+
+  it("falls back to another configured provider when the preferred one fails", async () => {
+    loadWebConfigMock.mockReturnValue({
+      searchProvider: "ddgs",
+      fetchProvider: "basic",
+      apiKeys: { brave: "brave-key", serper: "serper-key" },
+    });
+    searchWebMock
+      .mockRejectedValueOnce(new Error("DuckDuckGo blocked"))
+      .mockResolvedValueOnce([
+        {
+          title: "Fallback result",
+          href: "https://example.com/fallback",
+          body: "Recovered with Brave.",
+        },
+      ]);
+
+    const result = await webSearchTool.execute("call-3", {
+      query: "fallback query",
+    });
+
+    expect(searchWebMock).toHaveBeenNthCalledWith(
+      1,
+      "fallback query",
+      {
+        maxResults: undefined,
+        region: undefined,
+        timelimit: undefined,
+        page: undefined,
+      },
+      {
+        proxyUrl: "https://proxy.example.com/?url=",
+        apiKeys: { brave: "brave-key", serper: "serper-key" },
+      },
+      "ddgs",
+    );
+    expect(searchWebMock).toHaveBeenNthCalledWith(
+      2,
+      "fallback query",
+      {
+        maxResults: undefined,
+        region: undefined,
+        timelimit: undefined,
+        page: undefined,
+      },
+      {
+        proxyUrl: "https://proxy.example.com/?url=",
+        apiKeys: { brave: "brave-key", serper: "serper-key" },
+      },
+      "brave",
+    );
+    expect(result.content[0].text).toContain(
+      "Used brave after ddgs was unavailable.",
+    );
+    expect(result.content[0].text).toContain("Fallback result");
+  });
 });
 
 describe("webFetchTool", () => {

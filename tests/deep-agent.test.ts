@@ -199,4 +199,38 @@ describe("executeDeepResearch", () => {
     );
     expect(streamSimpleMock).not.toHaveBeenCalled();
   });
+
+  it("supports oauth-only configurations without a stored api key", async () => {
+    loadSavedConfigMock.mockReturnValue({
+      ...baseConfig,
+      apiKey: "",
+      authMethod: "oauth",
+      provider: "anthropic",
+    });
+    loadOAuthCredentialsMock.mockReturnValue({
+      access: "oauth-access",
+      refresh: "oauth-refresh",
+      expires: Date.now() + 60_000,
+    });
+    searchWebMock.mockResolvedValue([
+      {
+        title: "Example",
+        href: "https://example.com/article",
+        body: "snippet",
+      },
+    ]);
+    fetchWebMock.mockResolvedValue({
+      kind: "text",
+      contentType: "text/markdown",
+      text: "source text",
+      title: "Example article",
+    });
+
+    const result = await executeDeepResearch("market outlook", vi.fn());
+
+    expect(result).toBe("Structured answer");
+    expect(streamSimpleMock.mock.calls[0]?.[2]).toMatchObject({
+      apiKey: "oauth-access",
+    });
+  });
 });

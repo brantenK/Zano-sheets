@@ -9,6 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { parseSheetQualifiedAddress } from "../src/lib/excel/api";
+
 describe("Excel utilities", () => {
   describe("column index conversions", () => {
     it("converts column letters to index correctly", () => {
@@ -151,6 +153,22 @@ describe("Excel utilities", () => {
         startRow: 99,
         endCol: 26,
         endRow: 104,
+      });
+    });
+
+    it("parses sheet-qualified ranges", () => {
+      expect(parseSheetQualifiedAddress("Sheet1!A1:D10")).toEqual({
+        sheetName: "Sheet1",
+        rangeAddress: "A1:D10",
+      });
+
+      expect(parseSheetQualifiedAddress("'Quarter 1''s Data'!B2:C8")).toEqual({
+        sheetName: "Quarter 1's Data",
+        rangeAddress: "B2:C8",
+      });
+
+      expect(parseSheetQualifiedAddress("A1:D10")).toEqual({
+        rangeAddress: "A1:D10",
       });
     });
   });

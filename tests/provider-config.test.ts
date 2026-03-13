@@ -78,6 +78,20 @@ describe("loadSavedConfig", () => {
     expect(loadSavedConfig()).toBeNull();
   });
 
+  it("defaults proxy mode to off when the saved value is missing", () => {
+    store["zanosheets-config-v2"] = JSON.stringify({
+      provider: "openai",
+      model: "gpt-4o",
+      proxyUrl: "",
+      thinking: "none",
+      followMode: true,
+      authMethod: "apikey",
+    });
+
+    const loaded = loadSavedConfig();
+    expect(loaded?.useProxy).toBe(false);
+  });
+
   it("returns null for invalid JSON in storage", () => {
     const consoleError = vi
       .spyOn(console, "error")

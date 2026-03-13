@@ -6,9 +6,13 @@ const { getModelMock, buildCustomModelMock } = vi.hoisted(() => ({
   buildCustomModelMock: vi.fn(),
 }));
 
-vi.mock("@mariozechner/pi-ai/dist/models.js", () => ({
-  getModel: getModelMock,
-}));
+vi.mock("@mariozechner/pi-ai", async () => {
+  const actual = await vi.importActual("@mariozechner/pi-ai");
+  return {
+    ...actual,
+    getModel: getModelMock,
+  };
+});
 
 vi.mock("../src/lib/provider-config", async () => {
   const actual = await vi.importActual("../src/lib/provider-config");
