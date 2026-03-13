@@ -24,7 +24,13 @@
       "Bash(xargs grep -l \"catch.*{.*}\")",
       "Bash(node \"C:\\\\Users\\\\BrantenKonyana\\\\Downloads\\\\improvements-generator.js\")",
       "Bash(npm init -y)",
-      "Bash(npm install docx)"
+      "Bash(npm install docx)",
+      "Bash(cd \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\" && npx vite build 2>&1 | tail -20)",
+      "Bash(cd \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\" && npx vite build 2>&1 | tail -5)",
+      "Bash(cd \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\" && npx vitest run 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\" && npx vitest run tests/csv-utils.test.ts 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\" && npx tsc --noEmit && npx vite build 2>&1 | tail -5)",
+      "Bash(cd \"C:\\\\Users\\\\BrantenKonyana\\\\OneDrive - Genesis Chartered Accountants\\\\Documents\\\\open-excel-main\" && npx vitest run 2>&1 | tail -10)"
     ]
   }
 }
