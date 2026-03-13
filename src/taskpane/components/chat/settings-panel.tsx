@@ -110,7 +110,7 @@ export function SettingsPanel() {
   // This prevents desync between what user selects and what gets saved
   const provider = state.providerConfig?.provider || "";
   const model = state.providerConfig?.model || "";
-  const useProxyValue = state.providerConfig?.useProxy ?? true;
+  const useProxyValue = state.providerConfig?.useProxy ?? false;
   const proxyUrlValue = state.providerConfig?.proxyUrl || "";
   const thinkingValue = state.providerConfig?.thinking || "none";
   const bashModeValue = state.providerConfig?.bashMode || "on-demand";
@@ -474,6 +474,13 @@ export function SettingsPanel() {
   const needsBraveKey = webSearchProvider === "brave";
   const needsSerperKey = webSearchProvider === "serper";
   const needsExaKey = webSearchProvider === "exa" || webFetchProvider === "exa";
+  const hasManagedWebProvider = Boolean(
+    braveApiKey || serperApiKey || exaApiKey,
+  );
+  const showDefaultSearchReliabilityWarning =
+    webSearchProvider === "ddgs" && !hasManagedWebProvider;
+  const showBasicFetchReliabilityWarning =
+    webFetchProvider === "basic" && !exaApiKey;
   const toggleCredentialStorageMode = useCallback(() => {
     const next: CredentialStorageMode =
       credentialStorageMode === "device" ? "session" : "device";
@@ -587,15 +594,50 @@ export function SettingsPanel() {
         geminiApiKey: string;
       }>,
     ) => {
-      const nextSearchProvider = updates.searchProvider ?? webSearchProvider;
-      const nextFetchProvider = updates.fetchProvider ?? webFetchProvider;
       const nextBraveApiKey = updates.braveApiKey ?? braveApiKey;
       const nextSerperApiKey = updates.serperApiKey ?? serperApiKey;
       const nextExaApiKey = updates.exaApiKey ?? exaApiKey;
       const nextGeminiApiKey = updates.geminiApiKey ?? geminiApiKey;
+      const hasManagedSearchKeys = Boolean(
+        nextExaApiKey || nextBraveApiKey || nextSerperApiKey,
+      );
+
+      let nextSearchProvider = updates.searchProvider ?? webSearchProvider;
+      if (!("searchProvider" in updates)) {
+        const shouldPromoteSearch =
+          webSearchProvider === "ddgs" && hasManagedSearchKeys;
+        if (shouldPromoteSearch) {
+          nextSearchProvider = nextExaApiKey
+            ? "exa"
+            : nextBraveApiKey
+              ? "brave"
+              : "serper";
+        }
+      }
+
+      let nextFetchProvider = updates.fetchProvider ?? webFetchProvider;
+      if (!("fetchProvider" in updates)) {
+        const shouldPromoteFetch =
+          webFetchProvider === "basic" && Boolean(nextExaApiKey);
+        if (shouldPromoteFetch) {
+          nextFetchProvider = "exa";
+        }
+      }
 
       if ("searchProvider" in updates) setWebSearchProvider(nextSearchProvider);
       if ("fetchProvider" in updates) setWebFetchProvider(nextFetchProvider);
+      if (
+        !("searchProvider" in updates) &&
+        nextSearchProvider !== webSearchProvider
+      ) {
+        setWebSearchProvider(nextSearchProvider);
+      }
+      if (
+        !("fetchProvider" in updates) &&
+        nextFetchProvider !== webFetchProvider
+      ) {
+        setWebFetchProvider(nextFetchProvider);
+      }
       if ("braveApiKey" in updates) setBraveApiKey(nextBraveApiKey);
       if ("serperApiKey" in updates) setSerperApiKey(nextSerperApiKey);
       if ("exaApiKey" in updates) setExaApiKey(nextExaApiKey);
@@ -1409,6 +1451,15 @@ export function SettingsPanel() {
               </p>
             </label>
 
+            {showDefaultSearchReliabilityWarning && (
+              <div className="border border-(--chat-warning) bg-(--chat-warning-bg) px-3 py-2 text-[10px] text-(--chat-warning)">
+                DuckDuckGo works as a fallback, but public scraping and shared
+                CORS proxies are less reliable than Brave, Serper, or Exa.
+                Configure one of those providers for a stronger public-web
+                experience.
+              </div>
+            )}
+
             <label className="block">
               <span className="block text-xs text-(--chat-text-secondary) mb-1.5">
                 Default Fetch Provider
@@ -1433,6 +1484,14 @@ export function SettingsPanel() {
                 Used by web-fetch.
               </p>
             </label>
+
+            {showBasicFetchReliabilityWarning && (
+              <div className="border border-(--chat-warning) bg-(--chat-warning-bg) px-3 py-2 text-[10px] text-(--chat-warning)">
+                Basic fetch depends on site CORS behavior and shared proxy
+                fallbacks. Add an Exa API key or your own proxy if you want web
+                reading to feel more consistent for end users.
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
@@ -1764,7 +1823,8 @@ export function SettingsPanel() {
                 Confirm tool writes
               </div>
               <div className="text-[10px] text-(--chat-text-muted)">
-                Ask before tools that can modify your workbook run.
+                Ask once per request before tools that can modify your workbook
+                run.
               </div>
             </div>
             <button

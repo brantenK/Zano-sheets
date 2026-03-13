@@ -7,6 +7,10 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  evaluateProviderConfig,
+  isProviderConfigReady,
+} from "../../../lib/provider-config";
 import { useChat } from "./chat-context";
 
 function formatFileSize(bytes: number): string {
@@ -27,6 +31,15 @@ export function ChatInput() {
 
   const uploads = state.uploads;
   const isUploading = state.isUploading;
+  const providerConfig = state.providerConfig;
+  const providerHealth = providerConfig
+    ? evaluateProviderConfig(providerConfig)
+    : null;
+  const isConfigReady = providerConfig
+    ? isProviderConfigReady(providerConfig) &&
+      providerHealth?.blocking.length === 0
+    : false;
+  const configBlockingMessage = providerHealth?.blocking[0] ?? null;
 
   const autoResize = useCallback(() => {
     const ta = textareaRef.current;
@@ -115,6 +128,14 @@ export function ChatInput() {
           {state.error}
         </div>
       )}
+      {!state.error &&
+        providerConfig &&
+        !isConfigReady &&
+        configBlockingMessage && (
+          <div className="text-(--chat-warning) text-xs mb-2 px-1">
+            {configBlockingMessage}
+          </div>
+        )}
 
       {/* Uploaded files chips */}
       {uploads.length > 0 && (
@@ -167,11 +188,13 @@ export function ChatInput() {
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder={
-            state.providerConfig
+            isConfigReady
               ? "Type a message... (Ctrl+Enter to send, Esc to stop)"
-              : "Configure API key in settings"
+              : providerConfig
+                ? "Finish provider setup in Settings"
+                : "Configure API key in settings"
           }
-          disabled={!state.providerConfig}
+          disabled={!isConfigReady}
           className={`
             w-full resize-none bg-transparent text-(--chat-text-primary)
             text-sm px-3 pt-2 pb-0 border-none outline-none
@@ -220,7 +243,7 @@ export function ChatInput() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!state.providerConfig || !input.trim()}
+              disabled={!isConfigReady || !input.trim()}
               className="flex items-center justify-center w-6 h-5
                          text-(--chat-text-muted) hover:text-(--chat-text-primary)
                          disabled:opacity-30 disabled:cursor-not-allowed
