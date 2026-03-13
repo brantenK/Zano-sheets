@@ -1,8 +1,8 @@
 diff --git a/dist/providers/openai-codex-responses.js b/dist/providers/openai-codex-responses.js
-index 7fe8f3b576e918c96a0d12a868317ae9cb1abd09..6338e7249176670e6712d19860404bbbd75887dd 100644
+index 76efb05bf2724ce15af5fac82c2518e046a62db7..2c5158a56994c3d491469604cd9f231cd904e517 100644
 --- a/dist/providers/openai-codex-responses.js
 +++ b/dist/providers/openai-codex-responses.js	
-@@ -196,7 +196,7 @@ function buildRequestBody(model, context, options) {
+@@ -201,7 +201,7 @@ function buildRequestBody(model, context, options) {
      });
      const body = {
          model: model.id,
@@ -12,10 +12,10 @@ index 7fe8f3b576e918c96a0d12a868317ae9cb1abd09..6338e7249176670e6712d19860404bbb
          instructions: context.systemPrompt,
          input: messages,
 diff --git a/dist/providers/openai-responses.js b/dist/providers/openai-responses.js
-index ebb642dc7677906866c7125de98c6c3dd3d43d81..6c47cb5be0000dd8a41e111cb7d858d4ab41c983 100644
+index 3bf172acee9286eb71fb40c067b303ea96563486..f72f6ae106f13052ce4e25273d2c3145b3c0cc98 100644
 --- a/dist/providers/openai-responses.js
 +++ b/dist/providers/openai-responses.js	
-@@ -136,7 +136,7 @@ function buildParams(model, context, options) {
+@@ -139,7 +139,7 @@ function buildParams(model, context, options) {
          stream: true,
          prompt_cache_key: cacheRetention === "none" ? undefined : options?.sessionId,
          prompt_cache_retention: getPromptCacheRetention(model.baseUrl, cacheRetention),
@@ -24,3 +24,17 @@ index ebb642dc7677906866c7125de98c6c3dd3d43d81..6c47cb5be0000dd8a41e111cb7d858d4
      };
      if (options?.maxTokens) {
          params.max_output_tokens = options?.maxTokens;
+diff --git a/package.json b/package.json
+index 7eec63628cf457c3abd7b40cfb521889abbb81aa..f678ab7029247f5b1715423950cbc07fc4946581 100644
+--- a/package.json
++++ b/package.json	
+@@ -17,7 +17,8 @@
+ 		"./bedrock-provider": {
+ 			"types": "./bedrock-provider.d.ts",
+ 			"import": "./bedrock-provider.js"
+-		}
++		},
++		"./dist/*": "./dist/*"
+ 	},
+ 	"bin": {
+ 		"pi-ai": "./dist/cli.js"
