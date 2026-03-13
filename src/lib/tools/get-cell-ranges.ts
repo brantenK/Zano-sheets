@@ -39,6 +39,21 @@ export const getCellRangesTool = defineTool({
         includeStyles: params.includeStyles,
         cellLimit: params.cellLimit,
       });
+      const json = JSON.stringify(result);
+      const MAX_RESULT_BYTES = 80000;
+      if (json.length > MAX_RESULT_BYTES) {
+        // Truncate and inform the LLM to request smaller ranges
+        const truncated = json.slice(0, MAX_RESULT_BYTES);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${truncated}\n\n[TRUNCATED: Result exceeded ${Math.round(MAX_RESULT_BYTES / 1024)}KB. Request smaller ranges or use get_range_as_csv for large datasets.]`,
+            },
+          ],
+          details: undefined,
+        };
+      }
       return toolSuccess(result);
     } catch (error) {
       const message =

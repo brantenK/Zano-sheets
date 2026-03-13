@@ -3,6 +3,7 @@ import type { Static, TObject } from "@sinclair/typebox";
 import type { DirtyRange } from "../dirty-tracker";
 
 export type ToolResult = AgentToolResult<undefined>;
+export type ToolUpdateCallback = (partialResult: ToolResult) => void;
 
 export interface DirtyTrackingConfig<T> {
   /** Derive dirty ranges from params and optionally the result (for success only) */
@@ -18,6 +19,7 @@ interface ToolConfig<T extends TObject> {
     toolCallId: string,
     params: Static<T>,
     signal?: AbortSignal,
+    onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
   dirtyTracking?: DirtyTrackingConfig<Static<T>>;
 }
@@ -35,8 +37,9 @@ export function defineTool<T extends TObject>(
     toolCallId: string,
     params: Static<T>,
     signal?: AbortSignal,
+    onUpdate?: ToolUpdateCallback,
   ): Promise<ToolResult> => {
-    const result = await execute(toolCallId, params, signal);
+    const result = await execute(toolCallId, params, signal, onUpdate);
     const first = result.content[0];
     if (!first || first.type !== "text") return result;
     const text = first.text;

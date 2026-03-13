@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
+import { checkToolApproval } from "../tool-approval";
 import { resizeRange } from "../excel/api";
 import { defineTool, toolError, toolSuccess } from "./types";
 

@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
+import { checkToolApproval } from "../tool-approval";
 import type { DirtyRange } from "../dirty-tracker";
 import { createTrackedContext } from "../excel/tracked-context";
 import { sandboxedEval } from "../sandbox";

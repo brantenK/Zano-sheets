@@ -1,5 +1,5 @@
 ﻿import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
+import { checkToolApproval } from "../tool-approval";
 import { startPerfSpan } from "../perf-telemetry";
 import { markBashWorkflowStart } from "../startup-telemetry";
 import {
@@ -10,6 +10,8 @@ import {
 } from "../truncate";
 import { getBash, getVfs, syncBashState } from "../vfs";
 import { defineTool, toolError, toolSuccess } from "./types";
+
+const BASH_TIMEOUT_MS = 30000;
 
 export const bashTool = defineTool({
   name: "bash",
@@ -37,7 +39,7 @@ export const bashTool = defineTool({
       }),
     ),
   }),
-  execute: async (toolCallId, params) => {
+  execute: async (toolCallId, params, signal) => {
     const span = startPerfSpan("bash_command_ms");
     try {
       await checkToolApproval(toolCallId, "bash");
@@ -76,7 +78,20 @@ export const bashTool = defineTool({
       }
 
       const bash = await getBash();
-      const result = await bash.exec(params.command);
+      const execPromise = bash.exec(params.command);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const id = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Bash command timed out after ${BASH_TIMEOUT_MS / 1000}s. The command may be hanging or producing excessive output. Try a simpler command.`,
+              ),
+            ),
+          BASH_TIMEOUT_MS,
+        );
+        signal?.addEventListener("abort", () => clearTimeout(id));
+      });
+      const result = await Promise.race([execPromise, timeoutPromise]);
       await syncBashState();
 
       let output = "";

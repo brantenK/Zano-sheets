@@ -5,6 +5,7 @@ import { fetchWeb } from "../web/fetch";
 import { defineTool, toolError, toolText } from "./types";
 
 const DEFAULT_MAX_CHARS = 12000;
+const FETCH_TIMEOUT_MS = 15000;
 
 function getProxyUrl(): string | undefined {
   const config = loadSavedConfig();
@@ -28,10 +29,10 @@ export const webFetchTool = defineTool({
       }),
     ),
   }),
-  execute: async (_toolCallId, params) => {
+  execute: async (_toolCallId, params, signal) => {
     try {
       const webConfig = loadWebConfig();
-      const result = await fetchWeb(
+      const fetchPromise = fetchWeb(
         params.url,
         {
           proxyUrl: getProxyUrl(),
@@ -39,6 +40,19 @@ export const webFetchTool = defineTool({
         },
         webConfig.fetchProvider,
       );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const id = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Web fetch timed out after ${FETCH_TIMEOUT_MS / 1000}s. The server may be slow or unresponsive.`,
+              ),
+            ),
+          FETCH_TIMEOUT_MS,
+        );
+        signal?.addEventListener("abort", () => clearTimeout(id));
+      });
+      const result = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (result.kind !== "text") {
         return toolText(
@@ -54,7 +68,9 @@ export const webFetchTool = defineTool({
 
       const header = [
         result.title ? `Title: ${result.title}` : "",
-        ...Object.entries(result.metadata || {}).map(([key, value]) => `${key}: ${value}`),
+        ...Object.entries(result.metadata || {}).map(
+          ([key, value]) => `${key}: ${value}`,
+        ),
       ]
         .filter(Boolean)
         .join("\n");

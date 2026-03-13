@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../../taskpane/components/chat/chat-context";
+import { checkToolApproval } from "../tool-approval";
 import {
   bustWorkbookMetadataCache,
   modifyWorkbookStructure,

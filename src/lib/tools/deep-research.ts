@@ -1,6 +1,19 @@
 import { Type } from "@sinclair/typebox";
 import { executeDeepResearch } from "../research/deep-agent";
-import { defineTool, type ToolResult, toolText } from "./types";
+import {
+  defineTool,
+  type ToolResult,
+  type ToolUpdateCallback,
+  toolError,
+  toolText,
+} from "./types";
+
+function emitProgress(
+  onUpdate: ToolUpdateCallback | undefined,
+  message: string,
+) {
+  onUpdate?.(toolText(message));
+}
 
 export const deepResearchTool = defineTool({
   name: "deep_research",
@@ -13,14 +26,19 @@ export const deepResearchTool = defineTool({
         "A comprehensive query detailing exactly what to research (e.g., 'Find the projected 5-year CAGR of humanoid robotics sector and the top 3 hardware players').",
     }),
   }),
-  execute: async (_toolCallId, params): Promise<ToolResult> => {
+  execute: async (
+    _toolCallId,
+    params,
+    _signal,
+    onUpdate,
+  ): Promise<ToolResult> => {
     try {
       const result = await executeDeepResearch(params.query, (msg) => {
-        console.log(`[Deep Research Agent] ${msg}`);
+        emitProgress(onUpdate, msg);
       });
       return toolText(result);
     } catch (e) {
-      return toolText(
+      return toolError(
         `Deep Research failed: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
