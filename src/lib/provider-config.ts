@@ -286,7 +286,7 @@ export function loadSavedConfig(): ProviderConfig | null {
       provider: parsed.provider ?? "",
       apiKey: "",
       model: parsed.model ?? "",
-      useProxy: parsed.useProxy ?? true,
+      useProxy: parsed.useProxy ?? false,
       proxyUrl: parsed.proxyUrl ?? "",
       thinking: parsed.thinking ?? "none",
       followMode: parsed.followMode ?? true,

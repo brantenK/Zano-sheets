@@ -4,7 +4,9 @@ export type IntegrationTelemetryReason =
   | "provider_final_error"
   | "send_message_error"
   | "stream_stall_timeout"
-  | "stream_completion_fallback";
+  | "stream_completion_fallback"
+  | "tool_loop_limit"
+  | "tool_loop_identical_errors";
 
 export interface ErrorRecord {
   context: string;
@@ -30,6 +32,8 @@ const DEFAULT_TELEMETRY: IntegrationTelemetry = {
     send_message_error: 0,
     stream_stall_timeout: 0,
     stream_completion_fallback: 0,
+    tool_loop_limit: 0,
+    tool_loop_identical_errors: 0,
   },
   statusCounts: {},
 };

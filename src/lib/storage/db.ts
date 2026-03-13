@@ -53,6 +53,29 @@ const vfsWriteQueue = new Map<string, Promise<void>>();
 const WORKBOOK_ID_KEY = "zanosheets-workbook-id";
 const LEGACY_WORKBOOK_ID_KEY = "openexcel-workbook-id";
 
+// localStorage fallback so workbookId survives even when Office settings don't
+// persist (e.g. debug temp workbooks that aren't saved to disk).
+function getLsFallbackKey(): string {
+  const docUrl = Office.context.document.url ?? "";
+  // Keep the key short but unique per document path.
+  const suffix = docUrl.slice(-80).replace(/[^a-z0-9._-]/gi, "_");
+  return `zanosheets-wbid-fb-${suffix || "nourl"}`;
+}
+
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
 function enqueueVfsWrite(
   sessionId: string,
   operation: () => Promise<void>,
@@ -123,8 +146,10 @@ export function getSessionMessageCount(session: ChatSession): number {
 }
 
 export async function getOrCreateWorkbookId(): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const settings = Office.context.document.settings;
+    const lsKey = getLsFallbackKey();
+
     let workbookId = settings.get(WORKBOOK_ID_KEY) as string | null;
 
     if (!workbookId) {
@@ -136,36 +161,49 @@ export async function getOrCreateWorkbookId(): Promise<string> {
         settings.set(WORKBOOK_ID_KEY, legacyWorkbookId);
         settings.remove(LEGACY_WORKBOOK_ID_KEY);
         settings.saveAsync((result) => {
-          if (result.status === Office.AsyncResultStatus.Succeeded) {
-            resolve(legacyWorkbookId);
-          } else {
-            reject(
-              new Error(
-                result.error?.message ?? "Failed to migrate workbook ID",
-              ),
+          if (result.status !== Office.AsyncResultStatus.Succeeded) {
+            handleError(
+              new Error(result.error?.message ?? "Failed to migrate workbook ID"),
+              "getOrCreateWorkbookId migration",
             );
           }
         });
+        lsSet(lsKey, legacyWorkbookId);
+        resolve(legacyWorkbookId);
         return;
       }
     }
 
     if (workbookId) {
+      // Mirror to localStorage so it survives temp-workbook restarts.
+      lsSet(lsKey, workbookId);
       resolve(workbookId);
       return;
     }
 
+    // Office settings lost the ID (e.g. temp/unsaved workbook) — try localStorage.
+    const lsId = lsGet(lsKey);
+    if (lsId) {
+      // Restore into Office settings best-effort.
+      settings.set(WORKBOOK_ID_KEY, lsId);
+      settings.saveAsync(() => {});
+      resolve(lsId);
+      return;
+    }
+
+    // No stored ID anywhere — create a new one and persist to both stores.
     workbookId = crypto.randomUUID();
     settings.set(WORKBOOK_ID_KEY, workbookId);
+    lsSet(lsKey, workbookId);
     settings.saveAsync((result) => {
-      if (result.status === Office.AsyncResultStatus.Succeeded) {
-        resolve(workbookId);
-      } else {
-        reject(
+      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+        handleError(
           new Error(result.error?.message ?? "Failed to save workbook ID"),
+          "getOrCreateWorkbookId",
         );
       }
     });
+    resolve(workbookId);
   });
 }
 

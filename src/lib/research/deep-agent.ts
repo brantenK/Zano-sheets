@@ -1,4 +1,12 @@
 import type { Api, AssistantMessage, Model } from "@mariozechner/pi-ai";
+import { resolveAgentModel } from "../chat/model-resolution";
+import { streamSimple } from "../chat/provider-stream";
+import {
+  formatProviderError,
+  getErrorMessage,
+  getErrorStatus,
+  isRetryableProviderError,
+} from "../error-utils";
 import {
   loadOAuthCredentials,
   refreshOAuthToken,
@@ -10,8 +18,6 @@ import {
   loadSavedConfig,
   type ThinkingLevel,
 } from "../provider-config";
-import { resolveAgentModel } from "../chat/model-resolution";
-import { streamSimple } from "../chat/provider-stream";
 import { loadWebConfig } from "../web/config";
 import { fetchWeb } from "../web/fetch";
 import { searchWeb } from "../web/search";
@@ -62,88 +68,13 @@ function buildSearchProviderOrder(
   return uniqueProviders([preferredProvider || "ddgs", ...configuredFallbacks]);
 }
 
-function thinkingToReasoning(level: ThinkingLevel):
-  | "low"
-  | "medium"
-  | "high"
-  | undefined {
+function thinkingToReasoning(
+  level: ThinkingLevel,
+): "low" | "medium" | "high" | undefined {
   if (level === "none") return undefined;
   return level;
 }
 
-function getErrorStatus(err: unknown): number | undefined {
-  if (typeof err !== "object" || err === null) return undefined;
-  if (
-    "status" in err &&
-    typeof (err as { status?: unknown }).status === "number"
-  ) {
-    return (err as { status: number }).status;
-  }
-  return undefined;
-}
-
-function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  if (
-    typeof err === "object" &&
-    err !== null &&
-    "message" in err &&
-    typeof (err as { message?: unknown }).message === "string"
-  ) {
-    return (err as { message: string }).message;
-  }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "Unknown error";
-  }
-}
-
-function isRetryableProviderError(err: unknown): boolean {
-  const status = getErrorStatus(err);
-  if (status && [408, 425, 429, 500, 502, 503, 504].includes(status)) {
-    return true;
-  }
-
-  const message = getErrorMessage(err).toLowerCase();
-  return (
-    message.includes("rate limit") ||
-    message.includes("timeout") ||
-    message.includes("timed out") ||
-    message.includes("failed to fetch") ||
-    message.includes("network") ||
-    message.includes("econnreset") ||
-    message.includes("temporarily unavailable")
-  );
-}
-
-function formatProviderError(err: unknown): string {
-  const status = getErrorStatus(err);
-  if (status === 401) {
-    return "Authentication failed (401). Check your API key or reconnect OAuth.";
-  }
-  if (status === 403) {
-    return "Access denied (403). Verify provider permissions, model access, and billing.";
-  }
-  if (status === 429) {
-    return "Rate limited (429). Please retry in a moment.";
-  }
-  if (status && status >= 500) {
-    return `Provider temporarily unavailable (${status}). Please retry shortly.`;
-  }
-
-  const message = getErrorMessage(err);
-  const lower = message.toLowerCase();
-  if (lower.includes("cors") || lower.includes("proxy")) {
-    return "Request blocked by CORS/proxy configuration. Check proxy settings in Settings.";
-  }
-  if (lower.includes("failed to fetch") || lower.includes("network")) {
-    return "Network request failed. Check internet connectivity and proxy settings, then retry.";
-  }
-
-  return message || "An error occurred while contacting the model provider.";
-}
 
 async function getActiveApiKey(
   config: NonNullable<ReturnType<typeof loadSavedConfig>>,
@@ -156,7 +87,9 @@ async function getActiveApiKey(
 
   const creds = loadOAuthCredentials(config.provider);
   if (!creds) {
-    throw new Error("OAuth credentials are missing. Reconnect the provider in Settings.");
+    throw new Error(
+      "OAuth credentials are missing. Reconnect the provider in Settings.",
+    );
   }
 
   if (!forceRefresh && Date.now() < creds.expires) {
@@ -179,10 +112,15 @@ async function synthesizeResearch(
 ): Promise<string> {
   const resolvedModel = resolveAgentModel(config);
   if (!resolvedModel.baseModel) {
-    throw new Error(resolvedModel.error || "Unable to resolve the configured model.");
+    throw new Error(
+      resolvedModel.error || "Unable to resolve the configured model.",
+    );
   }
 
-  const model = applyProxyToModel(resolvedModel.baseModel, config) as Model<Api>;
+  const model = applyProxyToModel(
+    resolvedModel.baseModel,
+    config,
+  ) as Model<Api>;
   let apiKey = await getActiveApiKey(config);
   let lastError: unknown = null;
 
@@ -206,7 +144,14 @@ async function synthesizeResearch(
       );
       const message = (await stream.result()) as AssistantMessage;
       const text = message.content
-        .filter((part): part is Extract<AssistantMessage["content"][number], { type: "text" }> => part.type === "text")
+        .filter(
+          (
+            part,
+          ): part is Extract<
+            AssistantMessage["content"][number],
+            { type: "text" }
+          > => part.type === "text",
+        )
         .map((part) => part.text)
         .join("\n")
         .trim();
@@ -236,7 +181,9 @@ async function synthesizeResearch(
       if (isRetryableProviderError(err) && attempt < MAX_PROVIDER_RETRIES) {
         const baseDelayMs = 2 ** attempt * 1000;
         const jitterMs = Math.floor(Math.random() * 300);
-        await new Promise((resolve) => setTimeout(resolve, baseDelayMs + jitterMs));
+        await new Promise((resolve) =>
+          setTimeout(resolve, baseDelayMs + jitterMs),
+        );
         continue;
       }
 
@@ -268,7 +215,19 @@ export async function executeDeepResearch(
   onProgress: (msg: string) => void,
 ): Promise<string> {
   const config = loadSavedConfig();
-  if (!config || !config.apiKey) {
+  if (!config) {
+    throw new Error(
+      "No LLM API configuration found. Please setup OpenRouter, Gemini, or OpenAI in settings.",
+    );
+  }
+
+  if (config.authMethod === "oauth") {
+    if (!config.apiKey && !loadOAuthCredentials(config.provider)) {
+      throw new Error(
+        "No OAuth session found. Reconnect your provider in Settings before using deep research.",
+      );
+    }
+  } else if (!config.apiKey) {
     throw new Error(
       "No LLM API configuration found. Please setup OpenRouter, Gemini, or OpenAI in settings.",
     );
@@ -315,7 +274,9 @@ export async function executeDeepResearch(
       if (results.length > 0) {
         break;
       }
-      onProgress(`No results returned by ${providerId}. Trying next provider...`);
+      onProgress(
+        `No results returned by ${providerId}. Trying next provider...`,
+      );
     } catch (err) {
       lastSearchError = err;
       onProgress(
