@@ -101,7 +101,9 @@ describe("VFS file operations", () => {
       snapshot.forEach((entry) => {
         expect(entry).toHaveProperty("path");
         expect(entry).toHaveProperty("data");
-        expect(entry.data).toBeInstanceOf(Uint8Array);
+        const isView =
+          entry.data instanceof Uint8Array || ArrayBuffer.isView(entry.data);
+        expect(isView).toBe(true);
       });
     });
   });

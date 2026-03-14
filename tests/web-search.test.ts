@@ -34,7 +34,10 @@ describe("searchWeb brave provider", () => {
     const results = await searchWeb(
       "climate risk",
       { region: "de-de", timelimit: "w", maxResults: 5, page: 2 },
-      { apiKeys: { brave: "brave-key" } },
+      {
+        proxyUrl: "https://proxy.example.com/?url=",
+        apiKeys: { brave: "brave-key" },
+      },
       "brave",
     );
 
@@ -47,14 +50,16 @@ describe("searchWeb brave provider", () => {
     ]);
 
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
-    expect(String(requestUrl)).toContain("https://api.search.brave.com/res/v1/web/search?");
-    expect(String(requestUrl)).toContain("q=climate+risk");
-    expect(String(requestUrl)).toContain("count=5");
-    expect(String(requestUrl)).toContain("offset=5");
-    expect(String(requestUrl)).toContain("country=DE");
-    expect(String(requestUrl)).toContain("search_lang=de");
-    expect(String(requestUrl)).toContain("ui_lang=de-DE");
-    expect(String(requestUrl)).toContain("freshness=pw");
+    expect(String(requestUrl)).toContain(
+      "https://proxy.example.com/?url=https%3A%2F%2Fapi.search.brave.com%2Fres%2Fv1%2Fweb%2Fsearch",
+    );
+    expect(String(requestUrl)).toContain("q%3Dclimate%2Brisk");
+    expect(String(requestUrl)).toContain("count%3D5");
+    expect(String(requestUrl)).toContain("offset%3D5");
+    expect(String(requestUrl)).toContain("country%3DDE");
+    expect(String(requestUrl)).toContain("search_lang%3Dde");
+    expect(String(requestUrl)).toContain("ui_lang%3Dde-DE");
+    expect(String(requestUrl)).toContain("freshness%3Dpw");
     expect(requestInit).toMatchObject({
       headers: {
         Accept: "application/json",
@@ -63,39 +68,28 @@ describe("searchWeb brave provider", () => {
     });
   });
 
-  it("falls back to the configured proxy when direct Brave fetch fails", async () => {
-    fetchMock
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ web: { results: [] } }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
-      );
+  it("returns a clear error when configured Brave proxy fetch fails", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
 
-    await searchWeb(
-      "earnings",
-      { maxResults: 3 },
-      {
-        proxyUrl: "https://proxy.example.com/?url=",
-        apiKeys: { brave: "brave-key" },
-      },
-      "brave",
-    );
+    await expect(
+      searchWeb(
+        "earnings",
+        { maxResults: 3 },
+        {
+          proxyUrl: "https://proxy.example.com/?url=",
+          apiKeys: { brave: "brave-key" },
+        },
+        "brave",
+      ),
+    ).rejects.toThrow("Configured CORS proxy search failed: Failed to fetch");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "https://api.search.brave.com/res/v1/web/search?",
-    );
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
       "https://proxy.example.com/?url=https%3A%2F%2Fapi.search.brave.com%2Fres%2Fv1%2Fweb%2Fsearch",
     );
   });
 
-  it("includes Brave response details in errors", async () => {
+  it("includes configured proxy response details in errors", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ message: "quota exceeded" }), {
         status: 429,
@@ -108,11 +102,12 @@ describe("searchWeb brave provider", () => {
       searchWeb(
         "earnings",
         { maxResults: 3 },
-        { apiKeys: { brave: "brave-key" } },
+        {
+          proxyUrl: "https://proxy.example.com/?url=",
+          apiKeys: { brave: "brave-key" },
+        },
         "brave",
       ),
-    ).rejects.toThrow(
-      "Brave search failed: 429 Too Many Requests - quota exceeded",
-    );
+    ).rejects.toThrow(/Configured CORS proxy returned 429\..*quota exceeded/);
   });
 });

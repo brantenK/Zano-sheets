@@ -71,10 +71,11 @@ describe("webSearchTool", () => {
         timelimit: "d",
         page: undefined,
       },
-      {
+      expect.objectContaining({
         proxyUrl: "https://proxy.example.com/?url=",
         apiKeys: { brave: "brave-key" },
-      },
+        signal: expect.any(AbortSignal),
+      }),
       "brave",
     );
     expect(result.content[0].text).toContain("1. Match results");
@@ -110,10 +111,11 @@ describe("webSearchTool", () => {
         timelimit: undefined,
         page: undefined,
       },
-      {
+      expect.objectContaining({
         proxyUrl: "https://proxy.example.com/?url=",
         apiKeys: { brave: "brave-key", serper: "serper-key" },
-      },
+        signal: expect.any(AbortSignal),
+      }),
       "ddgs",
     );
     expect(searchWebMock).toHaveBeenNthCalledWith(
@@ -125,10 +127,11 @@ describe("webSearchTool", () => {
         timelimit: undefined,
         page: undefined,
       },
-      {
+      expect.objectContaining({
         proxyUrl: "https://proxy.example.com/?url=",
         apiKeys: { brave: "brave-key", serper: "serper-key" },
-      },
+        signal: expect.any(AbortSignal),
+      }),
       "brave",
     );
     expect(result.content[0].text).toContain(
@@ -158,10 +161,11 @@ describe("webFetchTool", () => {
 
     expect(fetchWebMock).toHaveBeenCalledWith(
       "https://example.com/page",
-      {
+      expect.objectContaining({
         proxyUrl: "https://proxy.example.com/?url=",
         apiKeys: { brave: "brave-key" },
-      },
+        signal: expect.any(AbortSignal),
+      }),
       "basic",
     );
     expect(result.content[0].text).toContain("Title: Example page");

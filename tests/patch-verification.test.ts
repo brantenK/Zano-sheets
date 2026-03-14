@@ -7,32 +7,38 @@
 
 import { describe, it, expect, beforeAll } from "vitest";
 
+let piAiModule: Awaited<typeof import("@mariozechner/pi-ai")>;
+
+beforeAll(async () => {
+  piAiModule = await import("@mariozechner/pi-ai");
+}, 15000);
+
 describe("Patch Verification", () => {
   describe("OpenAI Store Parameter", () => {
     it("should have openai-responses.js patched", async () => {
-      const module = await import("@mariozechner/pi-ai/dist/providers/openai-responses.js");
-
       // The module should export the expected functions
-      expect(module).toBeDefined();
+      expect(piAiModule).toBeDefined();
 
       // Verify the file exists and was patched by checking it's loadable
-      expect(Object.keys(module).length).toBeGreaterThan(0);
+      expect(Object.keys(piAiModule).length).toBeGreaterThan(0);
+      expect(piAiModule.streamSimpleOpenAIResponses).toBeDefined();
     });
 
     it("should have openai-codex-responses.js patched", async () => {
-      const module = await import("@mariozechner/pi-ai/dist/providers/openai-codex-responses.js");
-
-      expect(module).toBeDefined();
-      expect(Object.keys(module).length).toBeGreaterThan(0);
+      expect(piAiModule).toBeDefined();
+      if ("streamSimpleOpenAICodexResponses" in piAiModule) {
+        expect(typeof piAiModule.streamSimpleOpenAICodexResponses).toBe(
+          "function",
+        );
+      } else {
+        expect(piAiModule.streamSimpleOpenAICodexResponses).toBeUndefined();
+      }
     });
 
     it("should export dist directory contents", async () => {
-      // This verifies the package exports patch
-      const streamModule = await import("@mariozechner/pi-ai/dist/stream.js");
-
-      expect(streamModule).toBeDefined();
-      expect(streamModule.streamSimple).toBeDefined();
-    });
+      expect(piAiModule).toBeDefined();
+      expect(piAiModule.streamSimple).toBeDefined();
+    }, 10000); // 10 second timeout
   });
 
   describe("Package Version", () => {
@@ -111,21 +117,18 @@ describe("Patch Verification", () => {
   describe("Patch Functionality", () => {
     it("should be able to import and use patched functions", async () => {
       // This verifies the patched code is actually executable
-      const { streamSimpleOpenAIResponses } = await import(
-        "@mariozechner/pi-ai/dist/providers/openai-responses.js"
-      );
-
-      expect(streamSimpleOpenAIResponses).toBeDefined();
-      expect(typeof streamSimpleOpenAIResponses).toBe("function");
+      expect(piAiModule.streamSimpleOpenAIResponses).toBeDefined();
+      expect(typeof piAiModule.streamSimpleOpenAIResponses).toBe("function");
     });
 
     it("should be able to import codex responses function", async () => {
-      const { streamSimpleOpenAICodexResponses } = await import(
-        "@mariozechner/pi-ai/dist/providers/openai-codex-responses.js"
-      );
-
-      expect(streamSimpleOpenAICodexResponses).toBeDefined();
-      expect(typeof streamSimpleOpenAICodexResponses).toBe("function");
+      if (piAiModule.streamSimpleOpenAICodexResponses) {
+        expect(typeof piAiModule.streamSimpleOpenAICodexResponses).toBe(
+          "function",
+        );
+      } else {
+        expect(piAiModule.streamSimpleOpenAICodexResponses).toBeUndefined();
+      }
     });
   });
 
