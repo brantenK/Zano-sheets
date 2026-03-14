@@ -81,8 +81,8 @@ export function ChatInput() {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Ctrl+Enter or Cmd+Enter: Submit message
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      // Enter: Submit message. Shift+Enter inserts a newline.
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
         return;
@@ -95,11 +95,6 @@ export function ChatInput() {
         return;
       }
 
-      // Enter without shift: Submit (legacy behavior, can be changed)
-      // if (e.key === "Enter" && !e.shiftKey) {
-      //   e.preventDefault();
-      //   handleSubmit();
-      // }
     },
     [handleSubmit, state.isStreaming, abort],
   );
@@ -204,7 +199,7 @@ export function ChatInput() {
           onKeyDown={handleKeyDown}
           placeholder={
             isConfigReady
-              ? "Type a message... (Ctrl+Enter to send, Esc to stop)"
+              ? "Type a message... (Enter to send, Shift+Enter for new line, Esc to stop)"
               : providerConfig
                 ? "Finish provider setup in Settings"
                 : "Configure API key in settings"

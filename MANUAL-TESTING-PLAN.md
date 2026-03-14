@@ -127,8 +127,8 @@ This document provides a comprehensive manual testing checklist for the Zano She
 #### Chat Input
 - [ ] `Tab` - Navigate through interface
 - [ ] `Shift+Tab` - Navigate backwards
-- [ ] `Ctrl+Enter` / `Cmd+Enter` - Send message
-- [ ] `Enter` - New line (in textarea)
+- [ ] `Enter` - Send message
+- [ ] `Shift+Enter` - New line (in textarea)
 - [ ] `Escape` - Stop generation when streaming
 
 #### Session Management
