@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../tool-approval";
 import { resizeRange } from "../excel/api";
+import { checkToolApproval } from "../tool-approval";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 const SizeSchema = Type.Optional(

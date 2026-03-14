@@ -1,5 +1,4 @@
-import { streamSimple } from "./provider-stream";
-import { recordIntegrationTelemetry } from "../integration-telemetry";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import {
   formatProviderError,
   getErrorMessage,
@@ -7,17 +6,11 @@ import {
   isRetryableProviderError,
   parseRetryAfterFromError,
 } from "../error-utils";
-import type {
-  StreamModel,
-  StreamContext,
-  StreamOptions,
-  RetryConfig,
-  DEFAULT_RETRY_CONFIG,
-  RATE_LIMIT_RETRY_CONFIG,
-} from "./stream-types";
+import { recordIntegrationTelemetry } from "../integration-telemetry";
 import { circuitBreakerRegistry } from "./circuit-breaker";
+import { streamSimple } from "./provider-stream";
 import { withRateLimit } from "./rate-limiter";
-import type { Model, Api } from "@mariozechner/pi-ai";
+import type { StreamContext, StreamModel, StreamOptions } from "./stream-types";
 
 /** Default retry budget for transient errors (timeouts, 500s, network) */
 const DEFAULT_MAX_RETRIES = 3;
@@ -31,7 +24,9 @@ export interface StreamWithRetryOptions {
   /** Auth method from provider config */
   authMethod?: string;
   /** Called to get a (potentially refreshed) API key */
-  refreshApiKey: (opts?: { forceRefresh: boolean }) => Promise<string | undefined>;
+  refreshApiKey: (opts?: {
+    forceRefresh: boolean;
+  }) => Promise<string | undefined>;
   /** Provider name for circuit breaker and rate limiting */
   provider?: string;
   /** Skip circuit breaker check (for testing) */
@@ -44,7 +39,12 @@ export interface StreamWithRetryOptions {
 function extractProvider(model: StreamModel): string {
   const api = (model as Model<Api>).api;
   // Convert API to provider name (e.g., "anthropic-messages" -> "anthropic")
-  return String(api).replace(/-messages|-completions|-responses|-codex|-cli|-vertex/i, "") || "unknown";
+  return (
+    String(api).replace(
+      /-messages|-completions|-responses|-codex|-cli|-vertex/i,
+      "",
+    ) || "unknown"
+  );
 }
 
 /**
@@ -65,9 +65,11 @@ function isUnauthorizedError(err: unknown): boolean {
   // Check message property for 401/Unauthorized strings
   if (typeof errObj.message === "string") {
     const msg = errObj.message.toLowerCase();
-    return msg.includes("401") ||
+    return (
+      msg.includes("401") ||
       msg.includes("unauthorized") ||
-      msg.includes("invalid api key");
+      msg.includes("invalid api key")
+    );
   }
 
   return false;
@@ -79,7 +81,7 @@ function isUnauthorizedError(err: unknown): boolean {
 function calculateRetryDelay(
   attempt: number,
   isRateLimit: boolean,
-  retryAfterSeconds?: number
+  retryAfterSeconds?: number,
 ): number {
   if (retryAfterSeconds) {
     return retryAfterSeconds * 1000;
@@ -128,21 +130,23 @@ export async function streamWithRetry(
       // Circuit is open, reject request immediately
       const metrics = circuitBreaker.getMetrics();
       throw new Error(
-        `Service temporarily unavailable for ${provider} due to recent failures. Please try again later. (Failures: ${metrics.failures}, Opened: ${metrics.openedAt ? new Date(metrics.openedAt).toISOString() : 'N/A'})`
+        `Service temporarily unavailable for ${provider} due to recent failures. Please try again later. (Failures: ${metrics.failures}, Opened: ${metrics.openedAt ? new Date(metrics.openedAt).toISOString() : "N/A"})`,
       );
     }
   }
 
   // Check rate limit before attempting request
   return withRateLimit(provider, async () => {
-    const circuitBreaker = circuitBreakerRegistry.get(provider);
-
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const stream = await streamSimple(model, context, {
-          ...options,
-          apiKey,
-        });
+        const stream = await streamSimple(
+          model,
+          context as Parameters<typeof streamSimple>[1],
+          {
+            ...options,
+            apiKey,
+          },
+        );
 
         // Success: notify circuit breaker
         if (!retryOpts.skipCircuitBreaker) {
@@ -178,7 +182,11 @@ export async function streamWithRetry(
 
           // Parse Retry-After header if available
           const retryAfter = parseRetryAfterFromError(err);
-          const delayMs = calculateRetryDelay(attempt, isRateLimit, retryAfter ?? undefined);
+          const delayMs = calculateRetryDelay(
+            attempt,
+            isRateLimit,
+            retryAfter ?? undefined,
+          );
 
           console.log(
             `[Chat] Retry attempt ${attempt + 1}/${maxRetries} after ${Math.round(delayMs / 1000)}s (status: ${status ?? "network"})`,

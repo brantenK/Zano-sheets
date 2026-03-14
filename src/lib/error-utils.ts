@@ -16,6 +16,7 @@ export function getErrorStatus(err: unknown): number | undefined {
 }
 
 export function getErrorMessage(err: unknown): string {
+  if (err === null || err === undefined) return "Unknown error";
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   if (
@@ -82,6 +83,14 @@ export function parseRetryAfterFromError(err: unknown): number | null {
   return null;
 }
 
+/**
+ * Redact sensitive information from error messages.
+ */
+function redactSensitiveInfo(message: string): string {
+  // Redact API keys (sk-ant-, sk-proj-, etc.)
+  return message.replace(/sk-[a-z0-9_-]{10,}/gi, "[REDACTED API KEY]");
+}
+
 export function formatProviderError(err: unknown): string {
   const status = getErrorStatus(err);
   if (status === 401) {
@@ -106,5 +115,9 @@ export function formatProviderError(err: unknown): string {
     return "Network request failed. Check internet connectivity and proxy settings, then retry.";
   }
 
-  return message || "An error occurred while contacting the model provider.";
+  // Redact any sensitive information from the message
+  const sanitized = redactSensitiveInfo(
+    message || "An error occurred while contacting the model provider.",
+  );
+  return sanitized;
 }

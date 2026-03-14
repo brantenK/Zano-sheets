@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../tool-approval";
 import { type CellInput, setCellRange } from "../excel/api";
+import { checkToolApproval } from "../tool-approval";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 const BorderStyleSchema = Type.Optional(

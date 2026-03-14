@@ -14,14 +14,14 @@
  * - agent_end: Clean up after agent completion
  */
 
-import { useCallback, useRef } from "react";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ChatMessage } from "../message-utils";
-import { extractPartsFromAssistantMessage, generateId } from "../message-utils";
+import { useCallback, useRef } from "react";
 import { parseDirtyRanges } from "../dirty-tracker";
 import { navigateTo } from "../excel/api";
 import { recordIntegrationTelemetry } from "../integration-telemetry";
+import type { ChatMessage } from "../message-utils";
+import { extractPartsFromAssistantMessage, generateId } from "../message-utils";
 import {
   extractToolErrorMessage,
   isToolResultErrorText,
@@ -31,17 +31,26 @@ import {
 const MAX_TOOL_CALLS_PER_TURN = 25;
 const MAX_CONSECUTIVE_IDENTICAL_ERRORS = 3;
 
-export interface UseAgentEventsOptions {
+interface AgentEventsStateBase {
+  messages: ChatMessage[];
+  isStreaming: boolean;
+  error: string | null;
+  sessionStats: object;
+}
+
+export interface UseAgentEventsOptions<TState extends AgentEventsStateBase> {
   /** Callback to update chat state */
-  setState: React.Dispatch<React.SetStateAction<any>>;
+  setState: React.Dispatch<React.SetStateAction<TState>>;
   /** Ref tracking if follow mode is enabled */
   followModeRef: React.MutableRefObject<boolean>;
   /** Ref to clear streaming timeout */
   streamingTimeoutRef: React.MutableRefObject<number | null>;
+  /** Ref to clear timeout warning */
+  timeoutWarningRef?: React.MutableRefObject<number | null>;
   /** Ref tracking streaming state */
   isStreamingRef: React.MutableRefObject<boolean>;
   /** Ref to agent instance */
-  agentRef: React.MutableRefObject<any>;
+  agentRef: React.MutableRefObject<{ abort: () => void } | null>;
   /** Ref tracking streaming message ID */
   streamingMessageIdRef: React.MutableRefObject<string | null>;
 }
@@ -50,11 +59,15 @@ export interface UseAgentEventsResult {
   /** Handler for agent events */
   handleAgentEvent: (event: AgentEvent) => void;
   /** Ref tracking tool call count for loop detection */
-  toolCallCountRef: React.RefObject<number>;
+  toolCallCountRef: React.MutableRefObject<number>;
   /** Ref tracking last tool signature for loop detection */
-  lastToolSignatureRef: React.RefObject<string | null>;
+  lastToolSignatureRef: React.MutableRefObject<string | null>;
   /** Ref tracking consecutive identical errors */
-  consecutiveIdenticalErrorsRef: React.RefObject<number>;
+  consecutiveIdenticalErrorsRef: React.MutableRefObject<number>;
+  /** Ref tracking when streaming started (for time-to-first-token) */
+  streamingStartTimeRef: React.MutableRefObject<number | null>;
+  /** Ref tracking if we've received the first token yet */
+  hasReceivedFirstTokenRef: React.MutableRefObject<boolean>;
 }
 
 /**
@@ -62,23 +75,31 @@ export interface UseAgentEventsResult {
  *
  * Extracts 289 lines of complex event handling from chat-context.tsx.
  */
-export function useAgentEvents({
+export function useAgentEvents<TState extends AgentEventsStateBase>({
   setState,
   followModeRef,
   streamingTimeoutRef,
+  timeoutWarningRef,
   isStreamingRef,
   agentRef,
   streamingMessageIdRef,
-}: UseAgentEventsOptions): UseAgentEventsResult {
+}: UseAgentEventsOptions<TState>): UseAgentEventsResult {
   const toolCallCountRef = useRef(0);
   const lastToolSignatureRef = useRef<string | null>(null);
   const consecutiveIdenticalErrorsRef = useRef(0);
+  const streamingStartTimeRef = useRef<number | null>(null);
+  const hasReceivedFirstTokenRef = useRef(false);
 
   const handleAgentEvent = useCallback(
     (event: AgentEvent) => {
       switch (event.type) {
         case "message_start": {
           if (event.message.role === "assistant") {
+            // Track streaming start time for time-to-first-token metric
+            if (!streamingStartTimeRef.current) {
+              streamingStartTimeRef.current = Date.now();
+            }
+
             const id = generateId();
             streamingMessageIdRef.current = id;
             const parts = extractPartsFromAssistantMessage(event.message);
@@ -88,7 +109,7 @@ export function useAgentEvents({
               parts,
               timestamp: event.message.timestamp,
             };
-            setState((prev: any) => ({
+            setState((prev) => ({
               ...prev,
               messages: [...prev.messages, chatMessage],
             }));
@@ -100,15 +121,33 @@ export function useAgentEvents({
             event.message.role === "assistant" &&
             streamingMessageIdRef.current
           ) {
-            setState((prev: any) => {
+            // Track time to first token
+            if (
+              !hasReceivedFirstTokenRef.current &&
+              streamingStartTimeRef.current
+            ) {
+              const timeToFirstToken =
+                Date.now() - streamingStartTimeRef.current;
+              hasReceivedFirstTokenRef.current = true;
+              setState((prev) => ({
+                ...prev,
+                sessionStats: {
+                  ...prev.sessionStats,
+                  timeToFirstToken,
+                  streamingStartTime: streamingStartTimeRef.current,
+                },
+              }));
+            }
+
+            setState((prev) => {
               const messages = [...prev.messages];
               const idx = messages.findIndex(
-                (m: any) => m.id === streamingMessageIdRef.current
+                (m) => m.id === streamingMessageIdRef.current,
               );
               if (idx !== -1) {
                 const parts = extractPartsFromAssistantMessage(
                   event.message,
-                  messages[idx].parts
+                  messages[idx].parts,
                 );
                 messages[idx] = { ...messages[idx], parts };
               }
@@ -124,10 +163,10 @@ export function useAgentEvents({
               assistantMsg.stopReason === "error" ||
               assistantMsg.stopReason === "aborted";
 
-            setState((prev: any) => {
+            setState((prev) => {
               const messages = [...prev.messages];
               const idx = messages.findIndex(
-                (m: any) => m.id === streamingMessageIdRef.current
+                (m) => m.id === streamingMessageIdRef.current,
               );
 
               if (isError) {
@@ -137,7 +176,7 @@ export function useAgentEvents({
               } else if (idx !== -1) {
                 const parts = extractPartsFromAssistantMessage(
                   event.message,
-                  messages[idx].parts
+                  messages[idx].parts,
                 );
                 messages[idx] = { ...messages[idx], parts };
               }
@@ -168,11 +207,11 @@ export function useAgentEvents({
             console.error("[Chat] Tool call limit reached, aborting agent");
             recordIntegrationTelemetry(
               "tool_loop_limit",
-              toolCallCountRef.current
+              toolCallCountRef.current,
             );
             agentRef.current?.abort();
             isStreamingRef.current = false;
-            setState((prev: any) => ({
+            setState((prev) => ({
               ...prev,
               isStreaming: false,
               error: `Agent stopped: exceeded ${MAX_TOOL_CALLS_PER_TURN} tool calls in one turn. This usually means the agent is stuck in a loop. Please rephrase your request or try a different approach.`,
@@ -180,12 +219,12 @@ export function useAgentEvents({
             break;
           }
 
-          setState((prev: any) => {
+          setState((prev) => {
             const messages = [...prev.messages];
             for (let i = messages.length - 1; i >= 0; i--) {
               const msg = messages[i];
               const partIdx = msg.parts.findIndex(
-                (p: any) => p.type === "toolCall" && p.id === event.toolCallId
+                (p) => p.type === "toolCall" && p.id === event.toolCallId,
               );
               if (partIdx !== -1) {
                 const parts = [...msg.parts];
@@ -202,12 +241,12 @@ export function useAgentEvents({
           break;
         }
         case "tool_execution_update": {
-          setState((prev: any) => {
+          setState((prev) => {
             const messages = [...prev.messages];
             for (let i = messages.length - 1; i >= 0; i--) {
               const msg = messages[i];
               const partIdx = msg.parts.findIndex(
-                (p: any) => p.type === "toolCall" && p.id === event.toolCallId
+                (p) => p.type === "toolCall" && p.id === event.toolCallId,
               );
               if (partIdx !== -1) {
                 const parts = [...msg.parts];
@@ -278,15 +317,15 @@ export function useAgentEvents({
               MAX_CONSECUTIVE_IDENTICAL_ERRORS
             ) {
               console.error(
-                "[Chat] Consecutive identical tool errors detected, aborting agent"
+                "[Chat] Consecutive identical tool errors detected, aborting agent",
               );
               recordIntegrationTelemetry(
                 "tool_loop_identical_errors",
-                consecutiveIdenticalErrorsRef.current
+                consecutiveIdenticalErrorsRef.current,
               );
               agentRef.current?.abort();
               isStreamingRef.current = false;
-              setState((prev: any) => ({
+              setState((prev) => ({
                 ...prev,
                 isStreaming: false,
                 error: `Agent stopped: the same tool call failed ${MAX_CONSECUTIVE_IDENTICAL_ERRORS} times in a row with the same error. Please try a different approach.`,
@@ -316,13 +355,13 @@ export function useAgentEvents({
             }
           }
 
-          setState((prev: any) => {
+          setState((prev) => {
             let toolErrorNotice: string | null = null;
             const messages = [...prev.messages];
             for (let i = messages.length - 1; i >= 0; i--) {
               const msg = messages[i];
               const partIdx = msg.parts.findIndex(
-                (p: any) => p.type === "toolCall" && p.id === event.toolCallId
+                (p) => p.type === "toolCall" && p.id === event.toolCallId,
               );
               if (partIdx !== -1) {
                 const parts = [...msg.parts];
@@ -357,8 +396,15 @@ export function useAgentEvents({
             window.clearTimeout(streamingTimeoutRef.current);
             streamingTimeoutRef.current = null;
           }
+          // Clear timeout warning
+          if (timeoutWarningRef && timeoutWarningRef.current !== null) {
+            window.clearTimeout(timeoutWarningRef.current);
+            timeoutWarningRef.current = null;
+          }
           isStreamingRef.current = false;
-          setState((prev: any) => ({ ...prev, isStreaming: false }));
+          streamingStartTimeRef.current = null;
+          hasReceivedFirstTokenRef.current = false;
+          setState((prev) => ({ ...prev, isStreaming: false }));
           streamingMessageIdRef.current = null;
           break;
         }
@@ -369,10 +415,11 @@ export function useAgentEvents({
       setState,
       followModeRef,
       streamingTimeoutRef,
+      timeoutWarningRef,
       isStreamingRef,
       agentRef,
       streamingMessageIdRef,
-    ]
+    ],
   );
 
   return {
@@ -380,5 +427,7 @@ export function useAgentEvents({
     toolCallCountRef,
     lastToolSignatureRef,
     consecutiveIdenticalErrorsRef,
+    streamingStartTimeRef,
+    hasReceivedFirstTokenRef,
   };
 }

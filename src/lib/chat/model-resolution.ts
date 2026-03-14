@@ -1,7 +1,7 @@
-﻿import { type Api, type Model } from "@mariozechner/pi-ai";
+﻿import type { Api, Model } from "@mariozechner/pi-ai";
 import { buildCustomModel, type ProviderConfig } from "../provider-config";
+import { getModelSafe } from "./adapter";
 import { getCachedModelsForProvider } from "./provider-catalog";
-import { getModelSafe, providerToApi } from "./adapter";
 
 export interface ResolvedAgentModel {
   baseModel: Model<Api> | null;

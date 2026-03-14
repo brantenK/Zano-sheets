@@ -25,6 +25,14 @@ function getProxyUrl(): string | undefined {
   return config?.useProxy && config?.proxyUrl ? config.proxyUrl : undefined;
 }
 
+function requireProxyOrThrow(proxyUrl: string | undefined) {
+  if (!proxyUrl) {
+    throw new Error(
+      "Web search requires a CORS proxy in Excel. Configure one in Settings (CORS Proxy) or disable web tools.",
+    );
+  }
+}
+
 export const webSearchTool = defineTool({
   name: "web-search",
   label: "Web Search",
@@ -69,6 +77,8 @@ export const webSearchTool = defineTool({
   execute: async (_toolCallId, params, signal) => {
     try {
       const webConfig = loadWebConfig();
+      const proxyUrl = getProxyUrl();
+      requireProxyOrThrow(proxyUrl);
       const providerOrder = buildSearchProviderOrder(
         webConfig.searchProvider,
         webConfig.apiKeys,
@@ -80,7 +90,7 @@ export const webSearchTool = defineTool({
         page: params.page,
       };
       const context = {
-        proxyUrl: getProxyUrl(),
+        proxyUrl,
         apiKeys: webConfig.apiKeys,
       };
 
@@ -89,23 +99,26 @@ export const webSearchTool = defineTool({
       let resolvedProvider = providerOrder[0] ?? webConfig.searchProvider;
 
       for (const providerId of providerOrder) {
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        signal?.addEventListener("abort", onAbort);
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
         const searchPromise = searchWeb(
           params.query,
           options,
-          context,
+          { ...context, signal: controller.signal },
           providerId,
         );
         const timeoutPromise = new Promise<never>((_, reject) => {
-          const id = setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Web search timed out after ${SEARCH_TIMEOUT_MS / 1000}s. The search provider may be slow or unresponsive.`,
-                ),
+          timeoutId = setTimeout(() => {
+            controller.abort();
+            reject(
+              new Error(
+                `Web search timed out after ${SEARCH_TIMEOUT_MS / 1000}s. The search provider may be slow or unresponsive.`,
               ),
-            SEARCH_TIMEOUT_MS,
-          );
-          signal?.addEventListener("abort", () => clearTimeout(id));
+            );
+          }, SEARCH_TIMEOUT_MS);
         });
 
         try {
@@ -122,7 +135,18 @@ export const webSearchTool = defineTool({
             break;
           }
         } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            if (signal?.aborted) {
+              throw new Error("Web search aborted.");
+            }
+          }
           lastError = error instanceof Error ? error : new Error(String(error));
+        } finally {
+          searchPromise.catch(() => {});
+          if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+          }
+          signal?.removeEventListener("abort", onAbort);
         }
       }
 

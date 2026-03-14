@@ -34,7 +34,7 @@ export class TokenBucketRateLimiter {
   constructor(
     private capacity: number,
     private refillRate: number,
-    private refillIntervalMs: number = 1000
+    private refillIntervalMs: number = 1000,
   ) {
     this.tokens = capacity;
     this.lastRefill = Date.now();
@@ -109,7 +109,7 @@ export class SlidingWindowRateLimiter {
 
   constructor(
     private maxRequests: number,
-    private windowMs: number
+    private windowMs: number,
   ) {}
 
   /**
@@ -120,7 +120,7 @@ export class SlidingWindowRateLimiter {
     const windowStart = now - this.windowMs;
 
     // Remove old requests outside the window
-    this.requests = this.requests.filter(t => t > windowStart);
+    this.requests = this.requests.filter((t) => t > windowStart);
 
     if (this.requests.length < this.maxRequests) {
       this.requests.push(now);
@@ -147,7 +147,7 @@ export class SlidingWindowRateLimiter {
   getRequestCount(): number {
     const now = Date.now();
     const windowStart = now - this.windowMs;
-    return this.requests.filter(t => t > windowStart).length;
+    return this.requests.filter((t) => t > windowStart).length;
   }
 
   /**
@@ -190,10 +190,16 @@ class RateLimiterRegistry {
       };
       this.limiters.set(
         provider,
-        new SlidingWindowRateLimiter(config.maxRequests, config.windowMs)
+        new SlidingWindowRateLimiter(config.maxRequests, config.windowMs),
       );
     }
-    return this.limiters.get(provider)!;
+    const limiter = this.limiters.get(provider);
+    if (!limiter) {
+      throw new Error(
+        `Failed to initialize rate limiter for provider '${provider}'.`,
+      );
+    }
+    return limiter;
   }
 
   /**
@@ -202,7 +208,7 @@ class RateLimiterRegistry {
   setLimit(provider: string, config: RateLimitConfig): void {
     this.limiters.set(
       provider,
-      new SlidingWindowRateLimiter(config.maxRequests, config.windowMs)
+      new SlidingWindowRateLimiter(config.maxRequests, config.windowMs),
     );
   }
 
@@ -220,7 +226,9 @@ class RateLimiterRegistry {
     if (provider) {
       this.get(provider).reset();
     } else {
-      this.limiters.forEach(l => l.reset());
+      this.limiters.forEach((l) => {
+        l.reset();
+      });
       this.limiters.clear();
     }
   }
@@ -244,14 +252,14 @@ export const rateLimiterRegistry = new RateLimiterRegistry();
  */
 export async function withRateLimit<T>(
   provider: string,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
 ): Promise<T> {
   const result = rateLimiterRegistry.checkLimit(provider);
 
   if (!result.allowed) {
     const retryAfterSeconds = Math.ceil((result.retryAfter || 0) / 1000);
     throw new Error(
-      `Rate limit exceeded for ${provider}. Please retry after ${retryAfterSeconds} seconds.`
+      `Rate limit exceeded for ${provider}. Please retry after ${retryAfterSeconds} seconds.`,
     );
   }
 

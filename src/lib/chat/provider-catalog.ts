@@ -47,7 +47,7 @@ export async function preloadProviderCatalog(): Promise<string[]> {
     return providersCache;
   }
 
-  const { getProviders } = await import("@mariozechner/pi-ai/dist/models.js");
+  const { getProviders } = await import("@mariozechner/pi-ai");
   providersCache = getProviders().map((provider) => String(provider));
   return providersCache;
 }
@@ -60,7 +60,7 @@ export async function loadModelsForProvider(
     return cached;
   }
 
-  const { getModels } = await import("@mariozechner/pi-ai/dist/models.js");
+  const { getModels } = await import("@mariozechner/pi-ai");
 
   try {
     const models = getModels(provider as never) as Model<Api>[];

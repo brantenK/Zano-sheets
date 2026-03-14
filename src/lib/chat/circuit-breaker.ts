@@ -10,13 +10,11 @@
  * This prevents overwhelming a failing service and allows it to recover.
  */
 
-import {
-  CircuitBreakerState,
-} from "./stream-types";
 import type {
   CircuitBreakerConfig,
   CircuitBreakerMetrics,
 } from "./stream-types";
+import { CircuitBreakerState } from "./stream-types";
 
 // Re-export CircuitBreakerState for convenience
 export { CircuitBreakerState };
@@ -32,6 +30,8 @@ const DEFAULT_CONFIG = {
  * Circuit Breaker class for managing service state.
  */
 export class CircuitBreaker {
+  private config: CircuitBreakerConfig;
+
   private state: CircuitBreakerState = CircuitBreakerState.CLOSED;
   private metrics: CircuitBreakerMetrics = {
     failures: 0,
@@ -40,8 +40,8 @@ export class CircuitBreaker {
   private failureHistory: number[] = [];
   private nextAttemptTime: number = 0;
 
-  constructor(private config: Partial<CircuitBreakerConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...this.config };
+  constructor(config: Partial<CircuitBreakerConfig> = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
   /**
@@ -96,7 +96,7 @@ export class CircuitBreaker {
     this.cleanFailureHistory();
 
     if (this.state === CircuitBreakerState.HALF_OPEN) {
-      if (this.metrics.successes >= this.config.successThreshold!) {
+      if (this.metrics.successes >= this.config.successThreshold) {
         this.close();
       }
     }
@@ -114,7 +114,7 @@ export class CircuitBreaker {
     this.cleanFailureHistory();
 
     const recentFailures = this.countRecentFailures();
-    if (recentFailures >= this.config.failureThreshold!) {
+    if (recentFailures >= this.config.failureThreshold) {
       this.open();
     }
   }
@@ -124,8 +124,8 @@ export class CircuitBreaker {
    */
   private countRecentFailures(): number {
     const now = Date.now();
-    const monitoringStart = now - this.config.monitoringPeriodMs!;
-    return this.failureHistory.filter(t => t >= monitoringStart).length;
+    const monitoringStart = now - this.config.monitoringPeriodMs;
+    return this.failureHistory.filter((t) => t >= monitoringStart).length;
   }
 
   /**
@@ -133,8 +133,10 @@ export class CircuitBreaker {
    */
   private cleanFailureHistory(): void {
     const now = Date.now();
-    const monitoringStart = now - this.config.monitoringPeriodMs!;
-    this.failureHistory = this.failureHistory.filter(t => t >= monitoringStart);
+    const monitoringStart = now - this.config.monitoringPeriodMs;
+    this.failureHistory = this.failureHistory.filter(
+      (t) => t >= monitoringStart,
+    );
   }
 
   /**
@@ -143,9 +145,9 @@ export class CircuitBreaker {
   private open(): void {
     this.state = CircuitBreakerState.OPEN;
     this.metrics.openedAt = Date.now();
-    this.nextAttemptTime = Date.now() + this.config.timeoutMs!;
+    this.nextAttemptTime = Date.now() + this.config.timeoutMs;
     console.error(
-      `[CircuitBreaker] Circuit OPENED after ${this.metrics.failures} failures. Next attempt at ${new Date(this.nextAttemptTime).toISOString()}`
+      `[CircuitBreaker] Circuit OPENED after ${this.metrics.failures} failures. Next attempt at ${new Date(this.nextAttemptTime).toISOString()}`,
     );
   }
 
@@ -157,7 +159,9 @@ export class CircuitBreaker {
     this.metrics.failures = 0;
     this.metrics.successes = 0;
     this.metrics.openedAt = undefined;
-    console.log("[CircuitBreaker] Circuit CLOSED - accepting requests normally");
+    console.log(
+      "[CircuitBreaker] Circuit CLOSED - accepting requests normally",
+    );
   }
 
   /**
@@ -194,13 +198,13 @@ export class CircuitBreaker {
  */
 export function createProviderCircuitBreaker(
   provider: string,
-  config?: Partial<CircuitBreakerConfig>
+  config?: Partial<CircuitBreakerConfig>,
 ): CircuitBreaker {
   const breaker = new CircuitBreaker(config);
 
   // Log state changes
   const originalExecute = breaker.execute.bind(breaker);
-  breaker.execute = async function<T>(fn: () => Promise<T>) {
+  breaker.execute = async <T>(fn: () => Promise<T>) => {
     console.debug(`[CircuitBreaker:${provider}] State: ${breaker.getState()}`);
     return originalExecute(fn);
   };
@@ -218,14 +222,22 @@ class CircuitBreakerRegistry {
     if (!this.breakers.has(provider)) {
       this.breakers.set(provider, createProviderCircuitBreaker(provider));
     }
-    return this.breakers.get(provider)!;
+    const breaker = this.breakers.get(provider);
+    if (!breaker) {
+      throw new Error(
+        `Failed to initialize circuit breaker for provider '${provider}'.`,
+      );
+    }
+    return breaker;
   }
 
   reset(provider?: string): void {
     if (provider) {
       this.get(provider).reset();
     } else {
-      this.breakers.forEach(b => b.reset());
+      this.breakers.forEach((b) => {
+        b.reset();
+      });
       this.breakers.clear();
     }
   }

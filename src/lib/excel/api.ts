@@ -170,7 +170,7 @@ export async function getWorksheetById(
   await resilientSync(context);
 
   for (const sheet of sheets.items) {
-    sheet.load("id", { store: true });
+    sheet.load("id");
   }
   await resilientSync(context);
 
@@ -190,7 +190,7 @@ export async function getWorksheetStableId(
   context: Excel.RequestContext,
   sheet: Excel.Worksheet,
 ): Promise<number> {
-  sheet.load("id", { store: true });
+  sheet.load("id");
   await resilientSync(context);
   return getStableSheetId(sheet.id);
 }
@@ -474,7 +474,7 @@ export async function searchData(
     await resilientSync(context);
 
     for (const sheet of sheets.items) {
-      sheet.load("id", { store: true });
+      sheet.load("id");
     }
     await resilientSync(context);
 
@@ -598,7 +598,7 @@ export async function getAllObjects(
     await resilientSync(context);
 
     for (const sheet of sheets.items) {
-      sheet.load("id", { store: true });
+      sheet.load("id");
     }
     await resilientSync(context);
 
@@ -612,7 +612,7 @@ export async function getAllObjects(
       : sheets.items;
 
     for (const sheet of sheetsToCheck) {
-      sheet.load("name,id", { store: true });
+      sheet.load("name,id");
       const charts = sheet.charts;
       const pivotTables = sheet.pivotTables;
       charts.load("items");
@@ -623,7 +623,7 @@ export async function getAllObjects(
         stableIdMap.get(sheet.id) || (await getStableSheetId(sheet.id));
 
       for (const chart of charts.items) {
-        chart.load("id,name", { store: true });
+        chart.load("id,name");
         await resilientSync(context);
         if (!id || chart.id === id) {
           objects.push({
@@ -637,7 +637,7 @@ export async function getAllObjects(
       }
 
       for (const pivot of pivotTables.items) {
-        pivot.load("id,name", { store: true });
+        pivot.load("id,name");
         await resilientSync(context);
         if (!id || pivot.id === id) {
           objects.push({
@@ -1581,7 +1581,7 @@ export async function modifyObject(params: {
             );
             chart.setPosition(anchorCell);
           }
-          chart.load("id", { store: true });
+          chart.load("id");
           await resilientSync(context);
           return { success: true, operation, id: chart.id };
         }
@@ -1647,7 +1647,7 @@ export async function modifyObject(params: {
           if (properties?.rows || properties?.columns || properties?.values) {
             await applyPivotFields(context, pivot, properties);
           }
-          pivot.load("id", { store: true });
+          pivot.load("id");
           await resilientSync(context);
           return { success: true, operation, id: pivot.id };
         }

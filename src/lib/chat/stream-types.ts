@@ -5,15 +5,15 @@
  * to replace `any` types throughout the codebase.
  */
 
-import type { Api, Model, AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { Api, AssistantMessage, Model } from "@mariozechner/pi-ai";
 
 /**
  * Stream context passed to provider streaming functions.
  */
 export interface StreamContext {
   systemPrompt: string;
-  messages: Array<any>; // Using any to match pi-ai's Context type
+  messages: unknown[];
 }
 
 /**
@@ -130,7 +130,10 @@ export function isProviderError(err: unknown): err is ProviderError {
  */
 export function getErrorStatus(err: unknown): ProviderErrorStatus | undefined {
   if (typeof err === "object" && err !== null) {
-    if ("status" in err && typeof (err as { status: unknown }).status === "number") {
+    if (
+      "status" in err &&
+      typeof (err as { status: unknown }).status === "number"
+    ) {
       return (err as { status: number }).status as ProviderErrorStatus;
     }
   }
@@ -140,7 +143,9 @@ export function getErrorStatus(err: unknown): ProviderErrorStatus | undefined {
 /**
  * Checks if an error is retryable based on status code.
  */
-export function isRetryableStatus(status: ProviderErrorStatus | undefined): boolean {
+export function isRetryableStatus(
+  status: ProviderErrorStatus | undefined,
+): boolean {
   if (!status) return false;
   return [408, 429, 500, 502, 503, 504].includes(status);
 }

@@ -21,6 +21,14 @@ function getApiKey(
   return context.apiKeys?.[providerId];
 }
 
+function withSignal(
+  init: RequestInit | undefined,
+  context: WebContext,
+): RequestInit | undefined {
+  if (!context.signal) return init;
+  return { ...init, signal: context.signal };
+}
+
 function normalizeRegion(region?: string): {
   country: string;
   language: string;
@@ -83,18 +91,6 @@ async function readResponseErrorDetail(response: Response): Promise<string> {
   }
 }
 
-async function fetchDirectWithProxyFallback(
-  url: string,
-  context: WebContext,
-  init?: RequestInit,
-): Promise<Response> {
-  try {
-    return await fetch(url, init);
-  } catch {
-    return await fetchWithProxy(url, context, init);
-  }
-}
-
 async function fetchWithProxy(
   url: string,
   context: WebContext,
@@ -103,7 +99,7 @@ async function fetchWithProxy(
 ): Promise<Response> {
   // If skipProxy is true, fetch directly (for API calls with CORS support)
   if (options?.skipProxy) {
-    return await fetch(url, init);
+    return await fetch(url, withSignal(init, context));
   }
 
   // Use user-configured proxy, or fallback to consistent proxies if none configured
@@ -116,7 +112,7 @@ async function fetchWithProxy(
   for (const proxy of proxies) {
     try {
       const proxyUrlFinal = buildProxyRequestUrl(proxy, url);
-      const response = await fetch(proxyUrlFinal, init);
+      const response = await fetch(proxyUrlFinal, withSignal(init, context));
 
       // Retry on 403, 429 (rate limit), or 5xx server errors (only for non-user-configured proxies)
       if (
@@ -161,14 +157,9 @@ async function fetchWithProxy(
     }
   }
 
-  // All proxies failed, try direct fetch as last resort
-  try {
-    return await fetch(url, init);
-  } catch {
-    throw new Error(
-      "Search blocked by CORS. Please configure a custom CORS proxy in Settings for better reliability.",
-    );
-  }
+  throw new Error(
+    "Search blocked by CORS. Please configure a custom CORS proxy in Settings for better reliability.",
+  );
 }
 
 const ddgsProvider: SearchProvider = {
@@ -246,7 +237,13 @@ const braveProvider: SearchProvider = {
       url.searchParams.set("freshness", freshness);
     }
 
-    const resp = await fetchDirectWithProxyFallback(url.toString(), context, {
+    if (!context.proxyUrl) {
+      throw new Error(
+        "Brave search requires a CORS proxy. Configure one in Settings or use Serper/Exa.",
+      );
+    }
+
+    const resp = await fetchWithProxy(url.toString(), context, {
       headers: {
         Accept: "application/json",
         "X-Subscription-Token": apiKey,

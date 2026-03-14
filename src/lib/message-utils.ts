@@ -37,6 +37,12 @@ export interface SessionStats {
   totalCost: number;
   contextWindow: number;
   lastInputTokens: number;
+  /** Time to first token in milliseconds */
+  timeToFirstToken?: number;
+  /** Time when streaming started (ms timestamp) */
+  streamingStartTime?: number;
+  /** Current streaming cost estimate */
+  currentCost?: number;
 }
 
 export function isToolResultErrorText(result: string | undefined): boolean {

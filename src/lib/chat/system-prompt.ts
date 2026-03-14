@@ -1,6 +1,6 @@
 import type { ThinkingLevel as AgentThinkingLevel } from "@mariozechner/pi-agent-core";
-import { buildSkillsPromptSection, type SkillMeta } from "../skills";
 import type { ThinkingLevel } from "../provider-config";
+import { buildSkillsPromptSection, type SkillMeta } from "../skills";
 
 export function buildSystemPrompt(skills: SkillMeta[]): string {
   const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format

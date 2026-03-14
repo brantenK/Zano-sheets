@@ -91,15 +91,10 @@ async function fetchWithProxy(
     }
   }
 
-  // All proxies failed, try direct fetch as last resort
-  try {
-    return await fetch(url, init);
-  } catch {
-    throw new Error(
-      `All CORS proxies failed. Last error: ${lastError?.message ?? "Unknown"}. ` +
-        "Please configure a custom CORS proxy in Settings.",
-    );
-  }
+  throw new Error(
+    `All CORS proxies failed. Last error: ${lastError?.message ?? "Unknown"}. ` +
+      "Please configure a custom CORS proxy in Settings.",
+  );
 }
 
 async function extractContentFromHtml(
@@ -157,7 +152,11 @@ async function extractContentFromHtml(
 const basicFetchProvider: FetchProvider = {
   id: "basic",
   async fetch(url, context): Promise<FetchResult> {
-    const resp = await fetchWithProxy(url, context.proxyUrl);
+    const resp = await fetchWithProxy(
+      url,
+      context.proxyUrl,
+      context.signal ? { signal: context.signal } : undefined,
+    );
     if (!resp.ok) {
       throw new Error(`Fetch failed: ${resp.status} ${resp.statusText}`);
     }
@@ -272,6 +271,7 @@ const exaFetchProvider: FetchProvider = {
           "x-api-key": apiKey,
         },
         body: JSON.stringify(body),
+        signal: context.signal,
       },
       { skipProxy: true },
     ); // Exa API has CORS support, use direct fetch

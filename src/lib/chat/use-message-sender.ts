@@ -15,13 +15,16 @@
  */
 
 import { useCallback } from "react";
-import type { ProviderConfig } from "../provider-config";
-import type { ChatMessage } from "../message-utils";
-import { generateId } from "../message-utils";
+import {
+  formatProviderError as formatAgentErrorMessage,
+  getErrorStatus,
+} from "../error-utils";
 import { getWorkbookMetadata } from "../excel/api";
 import { recordIntegrationTelemetry } from "../integration-telemetry";
+import type { ChatMessage } from "../message-utils";
+import { generateId } from "../message-utils";
+import type { ProviderConfig } from "../provider-config";
 import { evaluateProviderConfig } from "../provider-config";
-import { getErrorStatus, formatProviderError as formatAgentErrorMessage } from "../error-utils";
 import { beginToolApprovalTurn } from "../tool-approval";
 
 export interface UseMessageSenderOptions {
@@ -30,15 +33,28 @@ export interface UseMessageSenderOptions {
   /** Pending provider configuration to apply */
   pendingConfigRef: React.MutableRefObject<ProviderConfig | null>;
   /** Agent instance */
-  agentRef: React.MutableRefObject<any>;
+  agentRef: React.MutableRefObject<{
+    prompt: (prompt: string) => Promise<unknown>;
+    abort: () => void;
+  } | null>;
   /** Callback to apply provider configuration */
   applyConfig: (config: ProviderConfig) => void;
   /** Callback to update chat state */
-  setState: React.Dispatch<React.SetStateAction<any>>;
+  setState: React.Dispatch<
+    React.SetStateAction<{
+      messages: ChatMessage[];
+      isStreaming: boolean;
+      error: string | null;
+      sheetNames: Record<number, string>;
+      [key: string]: unknown;
+    }>
+  >;
   /** Ref tracking streaming state */
   isStreamingRef: React.MutableRefObject<boolean>;
   /** Ref for streaming timeout */
   streamingTimeoutRef: React.MutableRefObject<number | null>;
+  /** Ref for timeout warning */
+  timeoutWarningRef: React.MutableRefObject<number | null>;
   /** Ref for abort controller */
   abortControllerRef: React.MutableRefObject<AbortController | null>;
 }
@@ -61,12 +77,13 @@ export function useMessageSender({
   setState,
   isStreamingRef,
   streamingTimeoutRef,
+  timeoutWarningRef,
   abortControllerRef,
 }: UseMessageSenderOptions): UseMessageSenderResult {
   const sendMessage = useCallback(
     async (content: string, attachments?: string[]) => {
       if (!providerConfig) {
-        setState((prev: any) => ({
+        setState((prev) => ({
           ...prev,
           error: "Please configure your API key first",
         }));
@@ -75,7 +92,7 @@ export function useMessageSender({
 
       const configHealth = evaluateProviderConfig(providerConfig);
       if (configHealth.blocking.length > 0) {
-        setState((prev: any) => ({
+        setState((prev) => ({
           ...prev,
           error: configHealth.blocking[0],
         }));
@@ -87,7 +104,7 @@ export function useMessageSender({
       }
       const agent = agentRef.current;
       if (!agent) {
-        setState((prev: any) => ({
+        setState((prev) => ({
           ...prev,
           error: "Please configure your API key first",
         }));
@@ -109,7 +126,7 @@ export function useMessageSender({
       abortControllerRef.current = new AbortController();
 
       isStreamingRef.current = true;
-      setState((prev: any) => ({
+      setState((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
         isStreaming: true,
@@ -119,7 +136,7 @@ export function useMessageSender({
       try {
         let promptContent = content;
         const pdfAttachments = (attachments ?? []).filter((name) =>
-          /\.pdf$/i.test(name)
+          /\.pdf$/i.test(name),
         );
         try {
           const metadata = await getWorkbookMetadata();
@@ -130,11 +147,11 @@ export function useMessageSender({
             for (const sheet of metadata.sheetsMetadata) {
               newSheetNames[sheet.id] = sheet.name;
             }
-            setState((prev: any) => ({ ...prev, sheetNames: newSheetNames }));
+            setState((prev) => ({ ...prev, sheetNames: newSheetNames }));
           }
         } catch (err) {
           console.error("[Chat] Failed to get workbook metadata:", err);
-          setState((prev: any) => ({
+          setState((prev) => ({
             ...prev,
             error:
               prev.error ??
@@ -168,7 +185,25 @@ export function useMessageSender({
 
         // Set up streaming timeout (5 minutes)
         const STREAMING_TIMEOUT_MS = 5 * 60 * 1000;
+        const TIMEOUT_WARNING_MS = 4 * 60 * 1000; // 4 minutes
+
+        // Set up timeout warning at 4 minutes
+        timeoutWarningRef.current = window.setTimeout(() => {
+          if (isStreamingRef.current) {
+            setState((prev) => ({
+              ...prev,
+              error:
+                "This is taking longer than usual. You can wait or cancel.",
+            }));
+          }
+        }, TIMEOUT_WARNING_MS);
+
         streamingTimeoutRef.current = window.setTimeout(() => {
+          // Clear warning timeout
+          if (timeoutWarningRef.current !== null) {
+            window.clearTimeout(timeoutWarningRef.current);
+            timeoutWarningRef.current = null;
+          }
           console.error("[Chat] Streaming timeout reached, aborting agent");
           recordIntegrationTelemetry("stream_stall_timeout", undefined);
           // Abort the agent if it's still running
@@ -176,7 +211,7 @@ export function useMessageSender({
             agentRef.current?.abort();
             isStreamingRef.current = false;
             streamingTimeoutRef.current = null;
-            setState((prev: any) => ({
+            setState((prev) => ({
               ...prev,
               isStreaming: false,
               error: "Request timed out after 5 minutes. Please try again.",
@@ -186,15 +221,19 @@ export function useMessageSender({
 
         await agent.prompt(promptContent);
       } catch (err) {
-        // Clear streaming timeout on error
+        // Clear streaming timeout and warning timeout on error
         if (streamingTimeoutRef.current !== null) {
           window.clearTimeout(streamingTimeoutRef.current);
           streamingTimeoutRef.current = null;
         }
+        if (timeoutWarningRef.current !== null) {
+          window.clearTimeout(timeoutWarningRef.current);
+          timeoutWarningRef.current = null;
+        }
         console.error("[Chat] sendMessage error:", err);
         recordIntegrationTelemetry("send_message_error", getErrorStatus(err));
         isStreamingRef.current = false;
-        setState((prev: any) => ({
+        setState((prev) => ({
           ...prev,
           isStreaming: false,
           error: formatAgentErrorMessage(err),
@@ -209,8 +248,9 @@ export function useMessageSender({
       setState,
       isStreamingRef,
       streamingTimeoutRef,
+      timeoutWarningRef,
       abortControllerRef,
-    ]
+    ],
   );
 
   return { sendMessage };

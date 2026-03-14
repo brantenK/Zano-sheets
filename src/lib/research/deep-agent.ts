@@ -75,7 +75,6 @@ function thinkingToReasoning(
   return level;
 }
 
-
 async function getActiveApiKey(
   config: NonNullable<ReturnType<typeof loadSavedConfig>>,
   options?: { forceRefresh?: boolean },

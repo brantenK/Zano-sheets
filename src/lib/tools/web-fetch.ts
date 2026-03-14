@@ -12,6 +12,14 @@ function getProxyUrl(): string | undefined {
   return config?.useProxy && config?.proxyUrl ? config.proxyUrl : undefined;
 }
 
+function requireProxyOrThrow(proxyUrl: string | undefined) {
+  if (!proxyUrl) {
+    throw new Error(
+      "Web fetch requires a CORS proxy in Excel. Configure one in Settings (CORS Proxy) or disable web tools.",
+    );
+  }
+}
+
 export const webFetchTool = defineTool({
   name: "web-fetch",
   label: "Web Fetch",
@@ -30,28 +38,38 @@ export const webFetchTool = defineTool({
     ),
   }),
   execute: async (_toolCallId, params, signal) => {
+    let controller: AbortController | null = null;
+    let onAbort: (() => void) | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let fetchPromise: ReturnType<typeof fetchWeb> | null = null;
     try {
       const webConfig = loadWebConfig();
-      const fetchPromise = fetchWeb(
+      const proxyUrl = getProxyUrl();
+      requireProxyOrThrow(proxyUrl);
+      controller = new AbortController();
+      onAbort = () => controller?.abort();
+      signal?.addEventListener("abort", onAbort);
+
+      fetchPromise = fetchWeb(
         params.url,
         {
-          proxyUrl: getProxyUrl(),
+          proxyUrl,
           apiKeys: webConfig.apiKeys,
+          signal: controller.signal,
         },
         webConfig.fetchProvider,
       );
       const timeoutPromise = new Promise<never>((_, reject) => {
-        const id = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Web fetch timed out after ${FETCH_TIMEOUT_MS / 1000}s. The server may be slow or unresponsive.`,
-              ),
+        timeoutId = setTimeout(() => {
+          controller?.abort();
+          reject(
+            new Error(
+              `Web fetch timed out after ${FETCH_TIMEOUT_MS / 1000}s. The server may be slow or unresponsive.`,
             ),
-          FETCH_TIMEOUT_MS,
-        );
-        signal?.addEventListener("abort", () => clearTimeout(id));
+          );
+        }, FETCH_TIMEOUT_MS);
       });
+
       const result = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (result.kind !== "text") {
@@ -77,8 +95,21 @@ export const webFetchTool = defineTool({
 
       return toolText(header ? `${header}\n\n${text}` : text);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return toolError("Web fetch aborted.");
+      }
       const message = error instanceof Error ? error.message : String(error);
       return toolError(message);
+    } finally {
+      if (fetchPromise) {
+        fetchPromise.catch(() => {});
+      }
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      if (onAbort) {
+        signal?.removeEventListener("abort", onAbort);
+      }
     }
   },
 });

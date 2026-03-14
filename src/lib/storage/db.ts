@@ -163,7 +163,9 @@ export async function getOrCreateWorkbookId(): Promise<string> {
         settings.saveAsync((result) => {
           if (result.status !== Office.AsyncResultStatus.Succeeded) {
             handleError(
-              new Error(result.error?.message ?? "Failed to migrate workbook ID"),
+              new Error(
+                result.error?.message ?? "Failed to migrate workbook ID",
+              ),
               "getOrCreateWorkbookId migration",
             );
           }

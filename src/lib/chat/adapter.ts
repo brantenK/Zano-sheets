@@ -8,11 +8,11 @@
 
 import type {
   Api,
-  Model,
   AssistantMessage,
-  UserMessage,
+  Model,
   Context as PiAiContext,
   StreamOptions,
+  UserMessage,
 } from "@mariozechner/pi-ai";
 
 /**
@@ -76,7 +76,7 @@ export function isSupportedApi(provider: string): provider is SupportedApi {
 export function providerToApi(provider: string): Api {
   if (!isSupportedApi(provider)) {
     throw new Error(
-      `Unsupported provider: ${provider}. Must be one of: ${Object.values(SUPPORTED_APIS).join(", ")}`
+      `Unsupported provider: ${provider}. Must be one of: ${Object.values(SUPPORTED_APIS).join(", ")}`,
     );
   }
   return provider as Api;
@@ -88,14 +88,17 @@ export function providerToApi(provider: string): Api {
  */
 export function getModelSafe(
   provider: string,
-  modelId: string
+  modelId: string,
 ): Model<Api> | null {
   try {
     const { getModel } = require("@mariozechner/pi-ai");
     const api = providerToApi(provider);
     return getModel(api, modelId);
   } catch (error) {
-    console.error(`Failed to get model ${modelId} for provider ${provider}:`, error);
+    console.error(
+      `Failed to get model ${modelId} for provider ${provider}:`,
+      error,
+    );
     return null;
   }
 }
@@ -145,7 +148,7 @@ export function validateModelApi(model: Model<Api>, expectedApi: Api): boolean {
 export class TypedModel<T extends ModelIdentifier> {
   constructor(
     private readonly model: Model<Api>,
-    public readonly identifier: T
+    public readonly identifier: T,
   ) {}
 
   get api(): Api {
@@ -165,7 +168,7 @@ export class TypedModel<T extends ModelIdentifier> {
    * Returns null if the model cannot be resolved.
    */
   static fromIdentifier<T extends ModelIdentifier>(
-    identifier: T
+    identifier: T,
   ): TypedModel<T> | null {
     const model = getModelSafe(identifier.provider, identifier.model);
     if (!model) {
@@ -175,7 +178,7 @@ export class TypedModel<T extends ModelIdentifier> {
     const expectedApi = providerToApi(identifier.provider);
     if (!validateModelApi(model, expectedApi)) {
       console.error(
-        `Model API mismatch: expected ${expectedApi}, got ${model.api}`
+        `Model API mismatch: expected ${expectedApi}, got ${model.api}`,
       );
       return null;
     }
@@ -197,7 +200,7 @@ export interface ModelResolutionResult<T extends ModelIdentifier> {
  * Resolves a model identifier to a typed model instance.
  */
 export function resolveModel<T extends ModelIdentifier>(
-  identifier: T
+  identifier: T,
 ): ModelResolutionResult<T> {
   try {
     const typedModel = TypedModel.fromIdentifier(identifier);

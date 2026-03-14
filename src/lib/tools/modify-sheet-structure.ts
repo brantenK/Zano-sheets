@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../tool-approval";
 import { bustWorkbookMetadataCache, modifySheetStructure } from "../excel/api";
+import { checkToolApproval } from "../tool-approval";
 import { getFriendlyError } from "./error-mapper";
 import { defineTool, toolError, toolSuccess } from "./types";
 

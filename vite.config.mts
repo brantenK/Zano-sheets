@@ -73,12 +73,18 @@ export default defineConfig(async ({ mode }) => {
             }
             if (
               normalizedId.includes("/@mariozechner/pi-ai/dist/stream") ||
-              normalizedId.includes("/@mariozechner/pi-ai/dist/providers/") ||
               normalizedId.includes("/@mariozechner/pi-ai/dist/api-registry") ||
               normalizedId.includes("/@mariozechner/pi-ai/dist/env-api-keys") ||
               normalizedId.includes("/@mariozechner/pi-ai/dist/utils/")
             ) {
-              return "ai-stream";
+              return "ai-stream-core";
+            }
+
+            // Provider modules are imported dynamically at runtime.
+            // Let Rollup keep those dynamic boundaries instead of forcing
+            // manual chunks, which can introduce circular-chunk warnings.
+            if (normalizedId.includes("/@mariozechner/pi-ai/dist/providers/")) {
+              return undefined;
             }
             if (normalizedId.includes("/@mariozechner/pi-ai/")) {
               return "ai-core";

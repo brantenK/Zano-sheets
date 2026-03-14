@@ -1,7 +1,7 @@
 ﻿import { Type } from "@sinclair/typebox";
-import { checkToolApproval } from "../tool-approval";
 import { startPerfSpan } from "../perf-telemetry";
 import { markBashWorkflowStart } from "../startup-telemetry";
+import { checkToolApproval } from "../tool-approval";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
@@ -11,7 +11,7 @@ import {
 import { getBash, getVfs, syncBashState } from "../vfs";
 import { defineTool, toolError, toolSuccess } from "./types";
 
-const BASH_TIMEOUT_MS = 30000;
+const BASH_TIMEOUT_MS = 60000;
 
 export const bashTool = defineTool({
   name: "bash",

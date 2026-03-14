@@ -14,6 +14,7 @@ export interface SearchOptions {
 export interface WebContext {
   proxyUrl?: string;
   apiKeys?: Record<string, string | undefined>;
+  signal?: AbortSignal;
 }
 
 export interface SearchProvider {

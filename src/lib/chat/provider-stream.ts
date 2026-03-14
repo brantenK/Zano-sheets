@@ -1,8 +1,7 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
 import { withChunkHeartbeat } from "./stream-fallback";
 
-type BaseStreamSimple =
-  typeof import("@mariozechner/pi-ai/dist/stream.js").streamSimple;
+type BaseStreamSimple = typeof import("@mariozechner/pi-ai").streamSimple;
 type StreamSimpleParams = Parameters<BaseStreamSimple>;
 type StreamSimpleResult = ReturnType<BaseStreamSimple>;
 
@@ -13,7 +12,7 @@ type StreamSimpleResult = ReturnType<BaseStreamSimple>;
 type StreamFactory = (
   model: Model<Api>,
   context: unknown,
-  options: unknown
+  options: unknown,
 ) => Awaited<StreamSimpleResult>;
 
 /**
@@ -30,45 +29,39 @@ const PROVIDER_REGISTRY: Record<
   }
 > = {
   "anthropic-messages": {
-    load: () => import("@mariozechner/pi-ai/dist/providers/anthropic.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleAnthropic",
   },
   "openai-completions": {
-    load: () =>
-      import("@mariozechner/pi-ai/dist/providers/openai-completions.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleOpenAICompletions",
   },
   "openai-responses": {
-    load: () =>
-      import("@mariozechner/pi-ai/dist/providers/openai-responses.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleOpenAIResponses",
   },
   "azure-openai-responses": {
-    load: () =>
-      import("@mariozechner/pi-ai/dist/providers/azure-openai-responses.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleAzureOpenAIResponses",
   },
   "openai-codex-responses": {
-    load: () =>
-      import("@mariozechner/pi-ai/dist/providers/openai-codex-responses.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleOpenAICodexResponses",
   },
   "google-generative-ai": {
-    load: () => import("@mariozechner/pi-ai/dist/providers/google.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleGoogle",
   },
   "google-gemini-cli": {
-    load: () =>
-      import("@mariozechner/pi-ai/dist/providers/google-gemini-cli.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleGoogleGeminiCli",
   },
   "google-vertex": {
-    load: () => import("@mariozechner/pi-ai/dist/providers/google-vertex.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleGoogleVertex",
   },
   "bedrock-converse-stream": {
-    load: () =>
-      import("@mariozechner/pi-ai/dist/providers/amazon-bedrock.js"),
+    load: () => import("@mariozechner/pi-ai"),
     factory: "streamSimpleBedrock",
   },
 };
@@ -95,7 +88,10 @@ export async function streamSimple(
   }
 
   const mod = await entry.load();
-  const rawFactory = mod[entry.factory];
+  let rawFactory = mod[entry.factory];
+  if (!rawFactory && api === "openai-codex-responses") {
+    rawFactory = mod.streamSimpleOpenAIResponses;
+  }
   const factory = castFactory(rawFactory, api);
 
   const stream = await factory(model, context, options);
