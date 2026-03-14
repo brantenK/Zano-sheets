@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-03-14
+
+### Features
+
+- **Accessibility foundation** - Added skip links, focus trap/restore helpers, stronger ARIA patterns, improved keyboard flows, and broad WCAG-focused UI updates across chat surfaces.
+- **Privacy and trust UI** - Added a header trust badge and detailed privacy modal, plus expanded privacy/data guidance and provider policy links in settings.
+- **Help system** - Added an in-app help panel, contextual tooltips, example prompt library, and issue reporter components for faster onboarding and troubleshooting.
+- **Error UX** - Added user-friendly error explanation mappings and reusable error display components for clearer recovery paths.
+- **Streaming feedback** - Added richer runtime feedback components for streaming state, tool progress, and timeout warnings.
+
+### Improvements
+
+- **Core stream reliability** - Hardened provider stream orchestration, retry/fallback behavior, and related chat runtime paths.
+- **Tool execution resilience** - Improved internal execution and web tooling paths for safer, more predictable behavior under failures.
+- **Onboarding boundary cleanup** - Extracted onboarding help UI from the lazy tour module to avoid static/dynamic import boundary issues.
+- **Build chunking** - Updated chunk strategy for AI stream/provider modules to reduce circular chunk pressure and preserve dynamic boundaries.
+
+### Fixes
+
+- **Brave web search contract alignment** - Updated Brave search tests and expectations to the current proxy-required behavior, including encoded URL assertions and clearer proxy failure semantics.
+
+### Tests
+
+- Expanded automated coverage with new suites for accessibility, onboarding/help, user workflows, error explanations/display/handling, and performance.
+- Updated Vitest config to include `.test.tsx` discovery and shared setup wiring.
+- Added CI test workflow and helper scripts to standardize local/CI validation.
+
+### Docs
+
+- Added comprehensive implementation and validation documentation for accessibility, onboarding, privacy, help system, testing, and release verification.
+
 ## [0.2.5] - 2026-03-09
 
 ### Features
