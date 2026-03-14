@@ -1,5 +1,6 @@
 import type { Agent } from "@mariozechner/pi-agent-core";
 import { useCallback, useEffect, useRef } from "react";
+import { loadModelsForProvider } from "../../../lib/chat/provider-catalog";
 import {
   agentMessagesToChatMessages,
   deriveStats,
@@ -17,7 +18,6 @@ import {
   syncSkillsToVfs,
 } from "../../../lib/skills";
 import {
-  type ChatSession,
   createSession,
   deleteSession,
   getLatestKnowledgeBaseFiles,
@@ -30,10 +30,14 @@ import {
   saveSessionKnowledgeBase,
   saveVfsFiles,
 } from "../../../lib/storage";
-import { listUploads, resetVfs, restoreVfs, snapshotVfs } from "../../../lib/vfs";
-import { loadModelsForProvider } from "../../../lib/chat/provider-catalog";
+import {
+  listUploads,
+  resetVfs,
+  restoreVfs,
+  snapshotVfs,
+} from "../../../lib/vfs";
 
-import type { ChatState, UploadedFile } from "./chat-context";
+import type { ChatState } from "./chat-context";
 
 const INITIAL_STATS: SessionStats = { ...deriveStats([]), contextWindow: 0 };
 
@@ -45,7 +49,9 @@ export interface SessionManagerDeps {
   sessionLoadedRef: React.MutableRefObject<boolean>;
   skillsRef: React.MutableRefObject<SkillMeta[]>;
   setState: React.Dispatch<React.SetStateAction<ChatState>>;
-  replaceKnowledgeBaseToolFiles: (files: KnowledgeBaseFileRecord[]) => Promise<void>;
+  replaceKnowledgeBaseToolFiles: (
+    files: KnowledgeBaseFileRecord[],
+  ) => Promise<void>;
   applyConfig: (config: ProviderConfig) => void;
   abort: () => void;
   isStreaming: boolean;
@@ -107,7 +113,15 @@ export function useSessionManager(deps: SessionManagerDeps) {
     } catch (err) {
       console.error("[Chat] Failed to create session:", err);
     }
-  }, [agentRef, isStreamingRef, workbookIdRef, currentSessionIdRef, refreshSessions, replaceKnowledgeBaseToolFiles, setState]);
+  }, [
+    agentRef,
+    isStreamingRef,
+    workbookIdRef,
+    currentSessionIdRef,
+    refreshSessions,
+    replaceKnowledgeBaseToolFiles,
+    setState,
+  ]);
 
   const switchSession = useCallback(
     async (sessionId: string) => {
@@ -157,7 +171,13 @@ export function useSessionManager(deps: SessionManagerDeps) {
         console.error("[Chat] Failed to switch session:", err);
       }
     },
-    [agentRef, isStreamingRef, currentSessionIdRef, replaceKnowledgeBaseToolFiles, setState],
+    [
+      agentRef,
+      isStreamingRef,
+      currentSessionIdRef,
+      replaceKnowledgeBaseToolFiles,
+      setState,
+    ],
   );
 
   const deleteCurrentSession = useCallback(async () => {
@@ -202,7 +222,15 @@ export function useSessionManager(deps: SessionManagerDeps) {
         createTime: kb.createTime,
       })),
     }));
-  }, [agentRef, isStreamingRef, currentSessionIdRef, workbookIdRef, refreshSessions, replaceKnowledgeBaseToolFiles, setState]);
+  }, [
+    agentRef,
+    isStreamingRef,
+    currentSessionIdRef,
+    workbookIdRef,
+    refreshSessions,
+    replaceKnowledgeBaseToolFiles,
+    setState,
+  ]);
 
   const clearMessages = useCallback(() => {
     abort();
@@ -255,7 +283,14 @@ export function useSessionManager(deps: SessionManagerDeps) {
       })();
     }
     prevStreamingRef.current = isStreaming;
-  }, [isStreaming, refreshSessions, agentRef, currentSessionIdRef, workbookIdRef, setState]);
+  }, [
+    isStreaming,
+    refreshSessions,
+    agentRef,
+    currentSessionIdRef,
+    workbookIdRef,
+    setState,
+  ]);
 
   // Load initial session on mount
   useEffect(() => {
@@ -319,7 +354,16 @@ export function useSessionManager(deps: SessionManagerDeps) {
       .catch((err) => {
         console.error("[Chat] Failed to load session:", err);
       });
-  }, [applyConfig, replaceKnowledgeBaseToolFiles, agentRef, currentSessionIdRef, workbookIdRef, sessionLoadedRef, skillsRef, setState]);
+  }, [
+    applyConfig,
+    replaceKnowledgeBaseToolFiles,
+    agentRef,
+    currentSessionIdRef,
+    workbookIdRef,
+    sessionLoadedRef,
+    skillsRef,
+    setState,
+  ]);
 
   return {
     refreshSessions,

@@ -27,7 +27,9 @@ import {
 } from "../../../lib/dirty-tracker";
 import { navigateTo } from "../../../lib/excel/api";
 import type { ChatMessage, MessagePart } from "../../../lib/message-utils";
+import { ToolResultDisplay } from "../error-display";
 import { useChat } from "./chat-context";
+import { ToolProgress } from "./tool-progress";
 
 function ThinkingBlock({
   thinking,
@@ -43,19 +45,28 @@ function ThinkingBlock({
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} reasoning`}
         className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] uppercase tracking-wider text-(--chat-accent) hover:bg-(--chat-bg-secondary) transition-colors"
       >
-        {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        <Brain size={10} />
+        {isExpanded ? (
+          <ChevronDown size={10} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={10} aria-hidden="true" />
+        )}
+        <Brain size={10} aria-hidden="true" />
         thinking
         {isStreaming && <span className="animate-pulse ml-1">...</span>}
       </button>
       {isExpanded && (
-        <div className="px-2 py-1.5 text-xs text-(--chat-text-muted) whitespace-pre-wrap wrap-break-word border-t border-(--chat-border) max-h-60 overflow-y-auto">
+        <section
+          aria-label="Reasoning content"
+          className="px-2 py-1.5 text-xs text-(--chat-text-muted) whitespace-pre-wrap wrap-break-word border-t border-(--chat-border) max-h-60 overflow-y-auto"
+        >
           {thinking?.trim().length
             ? thinking
             : "No reasoning text was returned by the provider for this step."}
-        </div>
+        </section>
       )}
     </div>
   );
@@ -187,12 +198,31 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
   }, [dirtyRanges, getSheetName]);
 
   const statusIcon = {
-    pending: <CheckCircle2 size={10} className="text-(--chat-accent)" />,
-    running: (
-      <Loader2 size={10} className="animate-spin text-(--chat-accent)" />
+    pending: (
+      <CheckCircle2
+        size={10}
+        className="text-(--chat-accent)"
+        aria-hidden="true"
+      />
     ),
-    complete: <CheckCircle2 size={10} className="text-green-500" />,
-    error: <XCircle size={10} className="text-red-500" />,
+    running: (
+      <Loader2
+        size={10}
+        className="animate-spin text-(--chat-accent)"
+        aria-hidden="true"
+      />
+    ),
+    complete: (
+      <CheckCircle2 size={10} className="text-green-500" aria-hidden="true" />
+    ),
+    error: <XCircle size={10} className="text-red-500" aria-hidden="true" />,
+  }[part.status];
+
+  const statusLabel = {
+    pending: "Pending",
+    running: "Running",
+    complete: "Complete",
+    error: "Error",
   }[part.status];
 
   return (
@@ -202,10 +232,16 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${explanation || part.name} - Status: ${statusLabel}`}
         className={`w-full flex items-center gap-1.5 px-2 py-1 text-[10px] tracking-wider text-(--chat-text-secondary) hover:bg-(--chat-bg-secondary) transition-colors ${explanation ? "normal-case" : "uppercase"}`}
       >
-        {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        <Wrench size={10} />
+        {isExpanded ? (
+          <ChevronDown size={10} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={10} aria-hidden="true" />
+        )}
+        <Wrench size={10} aria-hidden="true" />
         <span className="flex-1 text-left font-medium truncate">
           {explanation || part.name}
         </span>
@@ -214,17 +250,21 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
             className="flex items-center gap-1.5 text-(--chat-warning) shrink-0"
             title="Modified cells"
           >
-            <Edit3 size={9} />
+            <Edit3 size={9} aria-hidden="true" />
             <DirtyRangeSummary ranges={dirtyRanges ?? []} />
           </span>
         )}
+        <span className="sr-only">{statusLabel}</span>
         {statusIcon}
       </button>
       {isExpanded && (
-        <div className="border-t border-(--chat-border)">
+        <section
+          aria-label={`${explanation || part.name} details`}
+          className="border-t border-(--chat-border)"
+        >
           {hasValidDirtyRanges && (
             <div className="px-2 py-1 text-[10px] bg-(--chat-warning-bg) text-(--chat-warning) flex items-center gap-1 flex-wrap">
-              <Edit3 size={9} className="shrink-0" />
+              <Edit3 size={9} className="shrink-0" aria-hidden="true" />
               <span className="shrink-0">Modified:</span>
               <DirtyRangeLinks ranges={dirtyRanges ?? []} />
             </div>
@@ -255,34 +295,21 @@ ${JSON.stringify(part.args, null, 2)}
           )}
           {part.result && (
             <div className="px-2 py-1.5 text-xs border-t border-(--chat-border)">
-              <div className="text-(--chat-text-muted) text-[10px] uppercase mb-1">
-                {part.status === "error" ? "error" : "result"}
-              </div>
-              <div
-                className={`markdown-content max-h-40 overflow-y-auto **:data-[streamdown=code-block]:my-0 **:data-[streamdown=code-block]:border-0 ${part.status === "error" ? "[&_code]:text-red-400!" : ""}`}
-              >
-                <DeferredMarkdown
-                  text={`\`\`\`json
-${part.result}
-\`\`\``}
-                />
-              </div>
+              <ToolResultDisplay
+                result={part.result}
+                status={
+                  part.status === "error"
+                    ? "error"
+                    : part.status === "complete"
+                      ? "success"
+                      : "running"
+                }
+                toolName={explanation || part.name}
+              />
             </div>
           )}
-        </div>
+        </section>
       )}
-    </div>
-  );
-}
-
-function LoadingIndicator() {
-  return (
-    <div
-      className="flex items-center gap-2 text-(--chat-text-muted) text-sm"
-      style={{ fontFamily: "var(--chat-font-mono)" }}
-    >
-      <Loader2 size={14} className="animate-spin" />
-      <span>thinking...</span>
     </div>
   );
 }
@@ -417,7 +444,8 @@ function renderParts(
 
 function UserBubble({ message }: { message: ChatMessage }) {
   return (
-    <div
+    <section
+      aria-label="Your message"
       className="ml-8 px-3 py-2 text-sm leading-relaxed bg-(--chat-user-bg) border border-(--chat-border)"
       style={{
         borderRadius: "var(--chat-radius)",
@@ -425,7 +453,7 @@ function UserBubble({ message }: { message: ChatMessage }) {
       }}
     >
       {renderParts(message.parts, false, message.id)}
-    </div>
+    </section>
   );
 }
 function FullScreenModal({
@@ -436,7 +464,12 @@ function FullScreenModal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 bg-(--chat-bg) z-[10000] flex flex-col animate-slide-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Expanded message view"
+      className="fixed inset-0 bg-(--chat-bg) z-[10000] flex flex-col animate-slide-in"
+    >
       <div className="flex items-center justify-between px-4 py-2 border-b border-(--chat-border) bg-(--chat-bg-secondary)">
         <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted) font-bold">
           Expanded View
@@ -444,9 +477,10 @@ function FullScreenModal({
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close expanded view"
           className="p-1 text-(--chat-text-muted) hover:text-(--chat-text-primary) transition-colors"
         >
-          <X size={16} />
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
       <div className="flex-1 overflow-auto p-6 select-text">{children}</div>
@@ -504,13 +538,19 @@ function AssistantBubble({
         );
       })}
       {isStreaming && allParts.length === 0 && (
-        <span className="animate-pulse">▊</span>
+        <span className="animate-pulse" aria-hidden="true">
+          ▊
+        </span>
       )}
     </>
   );
 
   return (
-    <div
+    <section
+      aria-label={
+        isStreaming ? "Assistant response - streaming" : "Assistant response"
+      }
+      aria-busy={isStreaming}
       className="text-sm leading-relaxed relative group"
       style={{ fontFamily: "var(--chat-font-mono)" }}
     >
@@ -518,11 +558,11 @@ function AssistantBubble({
         <button
           type="button"
           onClick={() => setIsFullScreen(true)}
-          className="absolute -right-2 -top-2 p-1.5 bg-(--chat-bg) border border-(--chat-border) rounded-full shadow-sm 
+          aria-label="Expand message"
+          className="absolute -right-2 -top-2 p-1.5 bg-(--chat-bg) border border-(--chat-border) rounded-full shadow-sm
                      opacity-0 group-hover:opacity-100 hover:text-(--chat-accent) transition-all z-10"
-          title="Expand message"
         >
-          <Maximize2 size={10} />
+          <Maximize2 size={10} aria-hidden="true" />
         </button>
       )}
 
@@ -533,7 +573,7 @@ function AssistantBubble({
           <div className="max-w-3xl mx-auto">{content}</div>
         </FullScreenModal>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -583,9 +623,24 @@ export function MessageList() {
     }
   });
 
+  // Get tool calls from the last assistant message for progress tracking
+  const lastAssistantMessage = state.messages
+    .filter((m) => m.role === "assistant")
+    .pop();
+  const toolCalls =
+    lastAssistantMessage?.parts.filter(
+      (p): p is Extract<MessagePart, { type: "toolCall" }> =>
+        p.type === "toolCall",
+    ) ?? [];
+
+  // Find currently running tool index
+  const currentToolIndex = toolCalls.findIndex((t) => t.status === "running");
+
   if (state.messages.length === 0) {
     return (
-      <div
+      <section
+        id="message-list"
+        aria-label="Messages"
         className="flex-1 flex flex-col items-center justify-center p-6 text-center"
         style={{ fontFamily: "var(--chat-font-mono)" }}
       >
@@ -595,21 +650,23 @@ export function MessageList() {
         <div className="text-(--chat-text-secondary) text-sm max-w-[200px]">
           Start a conversation to interact with your Excel data
         </div>
-      </div>
+      </section>
     );
   }
 
   const groups = groupMessages(state.messages);
-  const lastMessage = state.messages[state.messages.length - 1];
-  const showLoading = state.isStreaming && lastMessage?.role === "user";
   const lastGroup = groups[groups.length - 1];
   const isStreamingAssistant =
     state.isStreaming && lastGroup?.type === "assistant";
 
   return (
-    <div
+    <section
+      id="message-list"
       ref={containerRef}
       onScroll={handleScroll}
+      aria-label="Chat messages"
+      aria-live="polite"
+      aria-busy={state.isStreaming}
       className="flex-1 overflow-y-auto p-3 space-y-3"
       style={{
         scrollbarWidth: "thin",
@@ -629,7 +686,14 @@ export function MessageList() {
           />
         );
       })}
-      {showLoading && <LoadingIndicator />}
-    </div>
+      {/* Show tool progress when tools are running */}
+      {state.isStreaming && currentToolIndex >= 0 && toolCalls.length > 0 && (
+        <ToolProgress
+          tools={toolCalls}
+          currentIndex={currentToolIndex}
+          startTime={state.sessionStats.streamingStartTime}
+        />
+      )}
+    </section>
   );
 }

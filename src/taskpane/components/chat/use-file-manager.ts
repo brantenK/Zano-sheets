@@ -1,18 +1,11 @@
 import { useCallback } from "react";
+import { saveSessionKnowledgeBase, saveVfsFiles } from "../../../lib/storage";
 import {
   addFileToKnowledgeBase,
   getKnowledgeBaseFiles,
   removeKnowledgeBaseFile as removeKnowledgeBaseFileRecord,
 } from "../../../lib/tools/query-knowledge-base";
-import {
-  saveSessionKnowledgeBase,
-  saveVfsFiles,
-} from "../../../lib/storage";
-import {
-  deleteFile,
-  snapshotVfs,
-  writeFile,
-} from "../../../lib/vfs";
+import { deleteFile, snapshotVfs, writeFile } from "../../../lib/vfs";
 
 import type { ChatState, UploadedFile } from "./chat-context";
 
@@ -98,106 +91,122 @@ export function useFileManager(deps: FileManagerDeps) {
     [uploads, currentSessionIdRef, workbookIdRef, setState],
   );
 
-  const removeUpload = useCallback(async (name: string) => {
-    try {
-      await deleteFile(name);
-      setState((prev) => ({
-        ...prev,
-        uploads: prev.uploads.filter((u) => u.name !== name),
-      }));
-      if (currentSessionIdRef.current && workbookIdRef.current) {
-        const snapshot = await snapshotVfs();
-        await saveVfsFiles(
-          workbookIdRef.current,
-          currentSessionIdRef.current,
-          snapshot,
-        );
-      }
-    } catch (err) {
-      console.error("Failed to delete file:", err);
-      setState((prev) => ({
-        ...prev,
-        uploads: prev.uploads.filter((u) => u.name !== name),
-      }));
-    }
-  }, [currentSessionIdRef, workbookIdRef, setState]);
-
-  const processKnowledgeBaseFiles = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
-    const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-    setState((prev) => ({ ...prev, isUploading: true }));
-    try {
-      const { uploadFileToGemini } = await import(
-        "../../../lib/rag/gemini-file-store"
-      );
-
-      for (const file of files) {
-        if (file.size > MAX_FILE_SIZE) {
-          throw new Error(
-            `File '${file.name}' is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max allowed is 20MB.`,
+  const removeUpload = useCallback(
+    async (name: string) => {
+      try {
+        await deleteFile(name);
+        setState((prev) => ({
+          ...prev,
+          uploads: prev.uploads.filter((u) => u.name !== name),
+        }));
+        if (currentSessionIdRef.current && workbookIdRef.current) {
+          const snapshot = await snapshotVfs();
+          await saveVfsFiles(
+            workbookIdRef.current,
+            currentSessionIdRef.current,
+            snapshot,
           );
         }
-        const geminiFile = await uploadFileToGemini(file, file.name, file.type);
-        addFileToKnowledgeBase(geminiFile);
+      } catch (err) {
+        console.error("Failed to delete file:", err);
+        setState((prev) => ({
+          ...prev,
+          uploads: prev.uploads.filter((u) => u.name !== name),
+        }));
       }
+    },
+    [currentSessionIdRef, workbookIdRef, setState],
+  );
 
-      const knowledgeBaseFiles = getKnowledgeBaseFiles();
-      setState((prev) => ({
-        ...prev,
-        knowledgeBaseUploads: knowledgeBaseFiles.map((kb) => ({
-          name: kb.name,
-          displayName: kb.displayName,
-          createTime: kb.createTime,
-        })),
-      }));
-      if (currentSessionIdRef.current) {
-        await saveSessionKnowledgeBase(
-          currentSessionIdRef.current,
-          knowledgeBaseFiles,
+  const processKnowledgeBaseFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+      setState((prev) => ({ ...prev, isUploading: true }));
+      try {
+        const { uploadFileToGemini } = await import(
+          "../../../lib/rag/gemini-file-store"
         );
-      }
-    } catch (err) {
-      console.error("Failed to upload to Knowledge Base:", err);
-      setState((prev) => ({
-        ...prev,
-        error:
-          err instanceof Error
-            ? err.message
-            : "Failed to upload to Knowledge Base",
-      }));
-    } finally {
-      setState((prev) => ({ ...prev, isUploading: false }));
-    }
-  }, [currentSessionIdRef, setState]);
 
-  const removeKnowledgeBaseFile = useCallback(async (name: string) => {
-    try {
-      removeKnowledgeBaseFileRecord(name);
-      const remaining = getKnowledgeBaseFiles();
-      setState((prev) => ({
-        ...prev,
-        knowledgeBaseUploads: remaining.map((kb) => ({
-          name: kb.name,
-          displayName: kb.displayName,
-          createTime: kb.createTime,
-        })),
-      }));
-      if (currentSessionIdRef.current) {
-        await saveSessionKnowledgeBase(currentSessionIdRef.current, remaining);
+        for (const file of files) {
+          if (file.size > MAX_FILE_SIZE) {
+            throw new Error(
+              `File '${file.name}' is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max allowed is 20MB.`,
+            );
+          }
+          const geminiFile = await uploadFileToGemini(
+            file,
+            file.name,
+            file.type,
+          );
+          addFileToKnowledgeBase(geminiFile);
+        }
+
+        const knowledgeBaseFiles = getKnowledgeBaseFiles();
+        setState((prev) => ({
+          ...prev,
+          knowledgeBaseUploads: knowledgeBaseFiles.map((kb) => ({
+            name: kb.name,
+            displayName: kb.displayName,
+            createTime: kb.createTime,
+          })),
+        }));
+        if (currentSessionIdRef.current) {
+          await saveSessionKnowledgeBase(
+            currentSessionIdRef.current,
+            knowledgeBaseFiles,
+          );
+        }
+      } catch (err) {
+        console.error("Failed to upload to Knowledge Base:", err);
+        setState((prev) => ({
+          ...prev,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Failed to upload to Knowledge Base",
+        }));
+      } finally {
+        setState((prev) => ({ ...prev, isUploading: false }));
       }
-      return true;
-    } catch (err) {
-      console.error("Failed to remove Knowledge Base file:", err);
-      setState((prev) => ({
-        ...prev,
-        error:
-          err instanceof Error
-            ? err.message
-            : "Failed to remove Knowledge Base file",
-      }));
-      return false;
-    }
-  }, [currentSessionIdRef, setState]);
+    },
+    [currentSessionIdRef, setState],
+  );
+
+  const removeKnowledgeBaseFile = useCallback(
+    async (name: string) => {
+      try {
+        removeKnowledgeBaseFileRecord(name);
+        const remaining = getKnowledgeBaseFiles();
+        setState((prev) => ({
+          ...prev,
+          knowledgeBaseUploads: remaining.map((kb) => ({
+            name: kb.name,
+            displayName: kb.displayName,
+            createTime: kb.createTime,
+          })),
+        }));
+        if (currentSessionIdRef.current) {
+          await saveSessionKnowledgeBase(
+            currentSessionIdRef.current,
+            remaining,
+          );
+        }
+        return true;
+      } catch (err) {
+        console.error("Failed to remove Knowledge Base file:", err);
+        setState((prev) => ({
+          ...prev,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Failed to remove Knowledge Base file",
+        }));
+        return false;
+      }
+    },
+    [currentSessionIdRef, setState],
+  );
 
   return {
     processFiles,

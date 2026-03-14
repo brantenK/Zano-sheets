@@ -1,7 +1,4 @@
-import {
-  Agent,
-  type AgentEvent,
-} from "@mariozechner/pi-agent-core";
+import { Agent } from "@mariozechner/pi-agent-core";
 import {
   type Api,
   getModels,
@@ -17,12 +14,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { getCachedModelsForProvider } from "../../../lib/chat/provider-catalog";
-import { streamWithRetry } from "../../../lib/chat/stream-with-retry";
-import { buildSystemPrompt, thinkingLevelToAgent } from "../../../lib/chat/system-prompt";
 import { resolveAgentModel } from "../../../lib/chat/model-resolution";
+import { streamWithRetry } from "../../../lib/chat/stream-with-retry";
+import {
+  buildSystemPrompt,
+  thinkingLevelToAgent,
+} from "../../../lib/chat/system-prompt";
 import { useAgentEvents } from "../../../lib/chat/use-agent-events";
-import { useMessageSender } from "../../../lib/chat/use-message-sender";
+import { getErrorStatus } from "../../../lib/error-utils";
 import { getWorkbookMetadata } from "../../../lib/excel/api";
 import { recordIntegrationTelemetry } from "../../../lib/integration-telemetry";
 import {
@@ -44,25 +43,32 @@ import {
   type ProviderConfig,
   saveConfig,
 } from "../../../lib/provider-config";
+import type { KnowledgeBaseFileRecord } from "../../../lib/rag/types";
 import type { SkillMeta } from "../../../lib/skills";
+import type { ChatSession } from "../../../lib/storage";
+import { beginToolApprovalTurn } from "../../../lib/tool-approval";
 import { EXCEL_TOOLS } from "../../../lib/tools";
 import { replaceKnowledgeBaseFiles } from "../../../lib/tools/query-knowledge-base";
-import { getErrorStatus } from "../../../lib/error-utils";
-import { checkToolApproval } from "../../../lib/tool-approval";
 import { useFileManager } from "./use-file-manager";
 import { useSessionManager } from "./use-session-manager";
 import { useSkillManager } from "./use-skill-manager";
 
+export {
+  getErrorMessage,
+  getErrorStatus,
+  isRetryableProviderError,
+} from "../../../lib/error-utils";
 export type {
   ChatMessage,
   MessagePart,
   SessionStats,
   ToolCallStatus,
 } from "../../../lib/message-utils";
-export type { ProviderConfig, ThinkingLevel };
+export type {
+  ProviderConfig,
+  ThinkingLevel,
+} from "../../../lib/provider-config";
 export { checkToolApproval } from "../../../lib/tool-approval";
-export { getErrorMessage, getErrorStatus, isRetryableProviderError } from "../../../lib/error-utils";
-
 
 import { formatProviderError as formatAgentErrorMessage } from "../../../lib/error-utils";
 
@@ -97,6 +103,7 @@ interface ChatContextValue {
   sendMessage: (content: string, attachments?: string[]) => Promise<void>;
   setProviderConfig: (config: ProviderConfig) => void;
   clearMessages: () => void;
+  clearError: () => void;
   abort: () => void;
   availableProviders: string[];
   getModelsForProvider: (provider: string) => Model<Api>[];
@@ -145,6 +152,7 @@ const FALLBACK_CHAT_CONTEXT: ChatContextValue = {
   sendMessage: async () => {},
   setProviderConfig: () => {},
   clearMessages: () => {},
+  clearError: () => {},
   abort: () => {},
   availableProviders: [],
   getModelsForProvider: () => [],
@@ -191,11 +199,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const followModeRef = useRef(state.providerConfig?.followMode ?? true);
   const skillsRef = useRef<SkillMeta[]>([]);
   const streamingTimeoutRef = useRef<number | null>(null);
+  const timeoutWarningRef = useRef<number | null>(null);
 
   // Tool-call loop breaker refs (now managed by useAgentEvents hook)
   const abortControllerRef = useRef<AbortController | null>(null);
   const replaceKnowledgeBaseToolFiles = useCallback(
-    async (files: KnowledgeBaseFileRecord[]) => replaceKnowledgeBaseFiles(files),
+    async (files: KnowledgeBaseFileRecord[]) =>
+      replaceKnowledgeBaseFiles(files),
     [],
   );
 
@@ -215,18 +225,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     toolCallCountRef,
     lastToolSignatureRef,
     consecutiveIdenticalErrorsRef,
-  } = useAgentEvents({
+  } = useAgentEvents<ChatState>({
     setState,
     followModeRef,
     streamingTimeoutRef,
+    timeoutWarningRef,
     isStreamingRef,
     agentRef,
     streamingMessageIdRef,
   });
-
-  const handleAgentEventWrapped = useCallback((event: AgentEvent) => {
-    return handleAgentEvent(event);
-  }, [handleAgentEvent]);
 
   const configRef = useRef<ProviderConfig | null>(null);
 
@@ -263,7 +270,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         console.warn("[Chat] Could not resolve model:", resolved.error);
         setState((prev) => ({
           ...prev,
-          error: resolved.error ?? "Could not resolve the configured model. Check Settings.",
+          error:
+            resolved.error ??
+            "Could not resolve the configured model. Check Settings.",
         }));
         return;
       }
@@ -292,14 +301,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         // pi-ai@0.55.4 internally while we use pi-ai@0.57.1.  The runtime
         // signatures are identical; only the private `isComplete` property
         // changed between the two AssistantMessageEventStream versions.
-        streamFn: ((model: any, context: any, options: any) => {
+        streamFn: ((model: unknown, context: unknown, options: unknown) => {
           const cfg = configRef.current ?? config;
-          return streamWithRetry(model, context, options, {
-            apiKey: cfg.apiKey,
-            authMethod: cfg.authMethod,
-            refreshApiKey: (opts) => getActiveApiKey(cfg, opts),
-          });
-        }) as any,
+          return streamWithRetry(
+            model as Parameters<typeof streamWithRetry>[0],
+            context as Parameters<typeof streamWithRetry>[1],
+            options as Parameters<typeof streamWithRetry>[2],
+            {
+              apiKey: cfg.apiKey,
+              authMethod: cfg.authMethod,
+              refreshApiKey: (opts) => getActiveApiKey(cfg, opts),
+            },
+          );
+        }) as never,
       });
       agentRef.current = agent;
       agent.subscribe(handleAgentEvent);
@@ -340,6 +354,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (streamingTimeoutRef.current !== null) {
       window.clearTimeout(streamingTimeoutRef.current);
       streamingTimeoutRef.current = null;
+    }
+    // Clear timeout warning if set
+    if (timeoutWarningRef.current !== null) {
+      window.clearTimeout(timeoutWarningRef.current);
+      timeoutWarningRef.current = null;
     }
     // Signal abort to any running tools
     abortControllerRef.current?.abort();
@@ -455,7 +474,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         // Set up streaming timeout (5 minutes)
         const STREAMING_TIMEOUT_MS = 5 * 60 * 1000;
+        const TIMEOUT_WARNING_MS = 4 * 60 * 1000; // 4 minutes
+
+        // Set up timeout warning at 4 minutes
+        timeoutWarningRef.current = window.setTimeout(() => {
+          if (isStreamingRef.current) {
+            setState((prev) => ({
+              ...prev,
+              error:
+                "This is taking longer than usual. You can wait or cancel.",
+            }));
+          }
+        }, TIMEOUT_WARNING_MS);
+
         streamingTimeoutRef.current = window.setTimeout(() => {
+          // Clear warning timeout
+          if (timeoutWarningRef.current !== null) {
+            window.clearTimeout(timeoutWarningRef.current);
+            timeoutWarningRef.current = null;
+          }
           console.error("[Chat] Streaming timeout reached, aborting agent");
           recordIntegrationTelemetry("stream_stall_timeout", undefined);
           // Abort the agent if it's still running
@@ -473,10 +510,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         await agent.prompt(promptContent);
       } catch (err) {
-        // Clear streaming timeout on error
+        // Clear streaming timeout and warning timeout on error
         if (streamingTimeoutRef.current !== null) {
           window.clearTimeout(streamingTimeoutRef.current);
           streamingTimeoutRef.current = null;
+        }
+        if (timeoutWarningRef.current !== null) {
+          window.clearTimeout(timeoutWarningRef.current);
+          timeoutWarningRef.current = null;
         }
         console.error("[Chat] sendMessage error:", err);
         recordIntegrationTelemetry("send_message_error", getErrorStatus(err));
@@ -488,28 +529,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }));
       }
     },
-    [state.providerConfig, applyConfig],
+    [
+      state.providerConfig,
+      applyConfig,
+      toolCallCountRef,
+      lastToolSignatureRef,
+      consecutiveIdenticalErrorsRef,
+    ],
   );
 
-  const {
-    refreshSessions,
-    newSession,
-    switchSession,
-    deleteCurrentSession,
-    clearMessages,
-  } = useSessionManager({
-    agentRef,
-    isStreamingRef,
-    currentSessionIdRef,
-    workbookIdRef,
-    sessionLoadedRef,
-    skillsRef,
-    setState,
-    replaceKnowledgeBaseToolFiles,
-    applyConfig,
-    abort,
-    isStreaming: state.isStreaming,
-  });
+  const { newSession, switchSession, deleteCurrentSession, clearMessages } =
+    useSessionManager({
+      agentRef,
+      isStreamingRef,
+      currentSessionIdRef,
+      workbookIdRef,
+      sessionLoadedRef,
+      skillsRef,
+      setState,
+      replaceKnowledgeBaseToolFiles,
+      applyConfig,
+      abort,
+      isStreaming: state.isStreaming,
+    });
 
   useEffect(() => {
     return () => {
@@ -550,6 +592,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const clearError = useCallback(() => {
+    setState((prev) => ({ ...prev, error: null }));
+  }, []);
+
   return (
     <ChatContext.Provider
       value={{
@@ -557,6 +603,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         sendMessage,
         setProviderConfig,
         clearMessages,
+        clearError,
         abort,
         availableProviders,
         getModelsForProvider,

@@ -326,6 +326,27 @@ export function SettingsPanel() {
     return providerId;
   };
 
+  const getProviderPrivacyUrl = (providerId: string): string => {
+    const privacyUrls: Record<string, string> = {
+      anthropic: "https://www.anthropic.com/legal/privacy",
+      openai: "https://openai.com/policies/privacy-policy",
+      google: "https://policies.google.com/privacy",
+      aws: "https://aws.amazon.com/ai/responsible-ai/",
+      azure: "https://privacy.microsoft.com/",
+      cohere: "https://cohere.com/privacy",
+      mistral: "https://mistral.ai/terms/#privacy",
+      openrouter: "https://openrouter.ai/privacy",
+      zai: "https://z.ai/privacy",
+      deepseek: "https://www.deepseek.com/privacy-policy",
+      groq: "https://groq.com/privacy-policy",
+      xai: "https://x.ai/privacy",
+    };
+    return (
+      privacyUrls[providerId] ||
+      "https://github.com/brantenK/Zano-sheets#privacy"
+    );
+  };
+
   const updateAndSync = useCallback(
     (
       updates: Partial<{
@@ -1802,8 +1823,15 @@ export function SettingsPanel() {
             <div className="space-y-1">
               <div className="text-(--chat-text-primary)">Usage telemetry</div>
               <div className="text-[10px] text-(--chat-text-muted)">
-                Sends error and performance data to improve the add-in. Requires
-                reload.
+                Helps improve performance and reliability.{" "}
+                <a
+                  href="https://github.com/brantenK/Zano-sheets#privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-(--chat-accent) hover:underline"
+                >
+                  What we collect
+                </a>
               </div>
             </div>
             <button
@@ -1859,6 +1887,114 @@ export function SettingsPanel() {
             >
               {credentialStorageMode === "device" ? "Device" : "Session"}
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Privacy & Data */}
+      <div className="border-t border-(--chat-border) pt-4">
+        <div className="text-[10px] uppercase tracking-widest text-(--chat-text-muted) mb-3">
+          privacy & data
+        </div>
+        <div className="space-y-3">
+          {/* Data handling explanation */}
+          <div className="p-3 bg-(--chat-success)/5 rounded border border-(--chat-success)/20">
+            <div className="flex items-start gap-2">
+              <div className="text-(--chat-success) mt-0.5">🔒</div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-(--chat-text-primary) mb-1">
+                  Your data stays in Excel
+                </p>
+                <p className="text-[10px] text-(--chat-text-muted) leading-relaxed">
+                  Workbook data remains local. Only prompts and context are sent
+                  to your AI provider.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* API Key storage indicator */}
+          <div className="flex items-center justify-between p-3 bg-(--chat-bg-secondary) rounded border border-(--chat-border)">
+            <div className="flex items-center gap-2">
+              <div className="text-(--chat-text-secondary)">🔑</div>
+              <div>
+                <p className="text-xs text-(--chat-text-primary)">
+                  API Key Storage
+                </p>
+                <p className="text-[10px] text-(--chat-text-muted)">
+                  {credentialStorageMode === "device"
+                    ? "Stored locally on this device"
+                    : "Stored for this session only"}
+                </p>
+              </div>
+            </div>
+            <div className="text-[10px] text-(--chat-text-muted) uppercase tracking-wider">
+              {credentialStorageMode === "device" ? "Local" : "Session"}
+            </div>
+          </div>
+
+          {/* Provider privacy policy link */}
+          {provider && (
+            <div className="flex items-center justify-between p-3 bg-(--chat-bg-secondary) rounded border border-(--chat-border)">
+              <div className="flex items-center gap-2">
+                <div className="text-(--chat-text-secondary)">📋</div>
+                <div>
+                  <p className="text-xs text-(--chat-text-primary)">
+                    Using: {providerLabel(provider)}
+                  </p>
+                  <p className="text-[10px] text-(--chat-text-muted)">
+                    Review their privacy policy
+                  </p>
+                </div>
+              </div>
+              <a
+                href={getProviderPrivacyUrl(provider)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-(--chat-accent) hover:underline flex items-center gap-1"
+              >
+                View Policy
+                <ExternalLink size={12} />
+              </a>
+            </div>
+          )}
+
+          {/* Help & support */}
+          <div className="pt-2 space-y-2">
+            <p className="text-xs text-(--chat-text-secondary)">
+              <strong className="text-(--chat-text-primary)">
+                Help & Support:
+              </strong>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href="https://github.com/brantenK/Zano-sheets/issues"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] px-2 py-1 bg-(--chat-bg) border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors rounded flex items-center gap-1"
+              >
+                Report Issue
+                <ExternalLink size={10} />
+              </a>
+              <a
+                href="https://github.com/brantenK/Zano-sheets#readme"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] px-2 py-1 bg-(--chat-bg) border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors rounded flex items-center gap-1"
+              >
+                Documentation
+                <ExternalLink size={10} />
+              </a>
+              <a
+                href="https://github.com/brantenK/Zano-sheets"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] px-2 py-1 bg-(--chat-bg) border border-(--chat-border) text-(--chat-text-secondary) hover:text-(--chat-text-primary) hover:border-(--chat-border-active) transition-colors rounded flex items-center gap-1"
+              >
+                View Source
+                <ExternalLink size={10} />
+              </a>
+            </div>
           </div>
         </div>
       </div>

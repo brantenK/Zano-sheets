@@ -274,13 +274,299 @@ html {
   html {
     font-size: 13px;
   }
-  
+
   .markdown-content table {
     display: block;
     overflow-x: auto;
   }
-  
+
   .chat-input-container {
     padding: 0.5rem;
   }
+}
+
+/* --- Accessibility Styles (WCAG 2.1 AA) --- */
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Make screen reader only content visible when focused */
+.sr-only-focusable:focus:not(:focus-visible),
+.sr-only-focusable:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Visible focus indicators for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Ensure focus indicators are visible in both themes */
+[data-theme="dark"] *:focus-visible {
+  outline-color: var(--chat-accent);
+}
+
+[data-theme="light"] *:focus-visible {
+  outline-color: var(--chat-accent);
+}
+
+/* Buttons should have clear focus states */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+/* Ensure skip links are visible when focused */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--chat-bg);
+  color: var(--chat-text-primary);
+  padding: 8px;
+  text-decoration: none;
+  z-index: 100;
+  transition: top 0.3s;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 2px solid var(--chat-accent);
+}
+
+/* Ensure sufficient color contrast for interactive elements */
+button,
+a {
+  color: var(--chat-text-primary);
+}
+
+button:disabled,
+a:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Improve visibility of interactive elements on hover */
+button:hover:not(:disabled),
+a:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+/* Ensure text can be resized without breaking layout */
+html {
+  /* Allow text resizing up to 200% */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Ensure visible focus for keyboard users */
+button:focus,
+a:focus,
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 1px;
+}
+
+/* Remove default outline only when using mouse */
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  * {
+    border-color: currentColor;
+  }
+
+  button,
+  a {
+    text-decoration: underline;
+  }
+}
+
+/* Ensure form controls have accessible labels */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="url"],
+textarea,
+select {
+  border: 1px solid var(--chat-border);
+  padding: 0.5em;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="url"]:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--chat-accent);
+  outline: 2px solid var(--chat-accent);
+  outline-offset: -1px;
+}
+
+/* Ensure error messages are associated with inputs */
+input[aria-invalid="true"],
+textarea[aria-invalid="true"],
+select[aria-invalid="true"] {
+  border-color: var(--chat-error);
+}
+
+/* Ensure live regions are properly announced */
+[aria-live="polite"],
+[aria-live="assertive"] {
+  position: relative;
+}
+
+/* Ensure modal dialogs are accessible */
+[role="dialog"] {
+  z-index: 1000;
+}
+
+/* Ensure progress bars are accessible */
+[role="progressbar"] {
+  display: inline-block;
+  min-width: 200px;
+}
+
+/* Ensure tooltips are accessible */
+[role="tooltip"] {
+  position: absolute;
+  z-index: 1001;
+  padding: 0.5em;
+  background: var(--chat-bg-secondary);
+  border: 1px solid var(--chat-border);
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+
+/* Ensure navigation landmarks are visible */
+[role="navigation"],
+[role="region"] {
+  position: relative;
+}
+
+/* Ensure tab panels are accessible */
+[role="tabpanel"] {
+  min-height: 200px;
+}
+
+/* Ensure tab buttons have accessible states */
+[role="tab"][aria-selected="true"] {
+  font-weight: 600;
+  border-bottom: 2px solid var(--chat-accent);
+}
+
+[role="tab"][aria-selected="false"] {
+  opacity: 0.7;
+}
+
+/* Ensure buttons with aria-pressed have clear visual feedback */
+button[aria-pressed="true"] {
+  background-color: var(--chat-bg-secondary);
+}
+
+button[aria-pressed="false"] {
+  background-color: transparent;
+}
+
+/* Ensure expanded/collapsed states are visible */
+[aria-expanded="true"] {
+  /* Rotate icon or show different visual */
+}
+
+[aria-expanded="false"] {
+  /* Reset icon rotation or show default visual */
+}
+
+/* Ensure disabled elements are properly indicated */
+[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Ensure busy states are indicated */
+[aria-busy="true"] {
+  cursor: wait;
+}
+
+/* Ensure required form fields are indicated */
+input[required]::after,
+textarea[required]::after,
+select[required]::after {
+  content: " *";
+  color: var(--chat-error);
+}
+
+/* Ensure current items in lists are indicated */
+[aria-current="page"],
+[aria-current="step"],
+[aria-current="true"] {
+  font-weight: 600;
+  color: var(--chat-accent);
+}
+
+/* Ensure checked states are visible */
+input[type="checkbox"]:checked + label,
+input[type="radio"]:checked + label {
+  font-weight: 600;
+}
+
+/* Ensure invalid states are visible */
+input:invalid:not(:placeholder-shown),
+textarea:invalid:not(:placeholder-shown) {
+  border-color: var(--chat-error);
+}
+
+/* Ensure placeholder text meets contrast requirements */
+::placeholder {
+  color: var(--chat-text-muted);
+  opacity: 1;
+}
+
+/* Ensure selection has sufficient contrast */
+::selection {
+  background-color: var(--chat-accent);
+  color: white;
 }

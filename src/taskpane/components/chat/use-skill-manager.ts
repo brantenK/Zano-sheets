@@ -1,11 +1,11 @@
 import { useCallback } from "react";
+import type { ProviderConfig } from "../../../lib/provider-config";
 import {
   addSkill,
   getInstalledSkills,
   removeSkill,
   type SkillMeta,
 } from "../../../lib/skills";
-import type { ProviderConfig } from "../../../lib/provider-config";
 
 import type { ChatState } from "./chat-context";
 

@@ -11,6 +11,7 @@ import {
   evaluateProviderConfig,
   isProviderConfigReady,
 } from "../../../lib/provider-config";
+import { InlineError } from "../error-display";
 import { useChat } from "./chat-context";
 
 function formatFileSize(bytes: number): string {
@@ -24,7 +25,8 @@ const MIN_ROWS = 1;
 const MAX_ROWS = 2;
 
 export function ChatInput() {
-  const { sendMessage, state, abort, processFiles, removeUpload } = useChat();
+  const { sendMessage, state, abort, processFiles, removeUpload, clearError } =
+    useChat();
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -119,29 +121,40 @@ export function ChatInput() {
   }, []);
 
   return (
-    <div
+    <section
+      id="chat-input"
       className="border-t border-(--chat-border) px-3 py-2 bg-(--chat-bg)"
       style={{ fontFamily: "var(--chat-font-mono)" }}
+      aria-label="Chat input"
     >
       {state.error && (
-        <div className="text-(--chat-error) text-xs mb-2 px-1">
-          {state.error}
-        </div>
+        <InlineError
+          message={state.error}
+          onDismiss={clearError}
+          className="mb-2"
+        />
       )}
       {!state.error &&
         providerConfig &&
         !isConfigReady &&
         configBlockingMessage && (
-          <div className="text-(--chat-warning) text-xs mb-2 px-1">
+          <output
+            id="config-warning"
+            className="text-(--chat-warning) text-xs mb-2 px-1"
+            aria-live="polite"
+          >
             {configBlockingMessage}
-          </div>
+          </output>
         )}
 
       {/* Uploaded files chips */}
       {uploads.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
+        <ul
+          aria-label={`Attached files: ${uploads.length} file${uploads.length > 1 ? "s" : ""}`}
+          className="flex flex-wrap gap-1.5 mb-2"
+        >
           {uploads.map((file) => (
-            <div
+            <li
               key={file.name}
               className="flex items-center gap-1 px-2 py-1 text-[10px] bg-(--chat-bg-secondary) border border-(--chat-border) text-(--chat-text-secondary)"
               style={{ borderRadius: "var(--chat-radius)" }}
@@ -157,14 +170,14 @@ export function ChatInput() {
               <button
                 type="button"
                 onClick={() => removeUpload(file.name)}
+                aria-label={`Remove ${file.name}`}
                 className="ml-0.5 text-(--chat-text-muted) hover:text-(--chat-error) transition-colors"
-                title="Remove from list"
               >
-                <X size={10} />
+                <X size={10} aria-hidden="true" />
               </button>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {/* Hidden file input */}
@@ -175,6 +188,7 @@ export function ChatInput() {
         onChange={handleFileSelect}
         className="hidden"
         accept="image/*,.pdf,.txt,.csv,.json,.xml,.md,.html,.css,.js,.ts,.py,.sh"
+        aria-label="Upload files"
       />
 
       {/* Input container — border on wrapper, textarea + action row inside */}
@@ -183,6 +197,7 @@ export function ChatInput() {
         style={{ borderRadius: "var(--chat-radius)" }}
       >
         <textarea
+          id="message-input"
           ref={textareaRef}
           value={input}
           onChange={handleInputChange}
@@ -195,6 +210,12 @@ export function ChatInput() {
                 : "Configure API key in settings"
           }
           disabled={!isConfigReady}
+          aria-label="Type your message"
+          aria-describedby={
+            !isConfigReady && configBlockingMessage
+              ? "config-warning"
+              : undefined
+          }
           className={`
             w-full resize-none bg-transparent text-(--chat-text-primary)
             text-sm px-3 pt-2 pb-0 border-none outline-none
@@ -215,15 +236,16 @@ export function ChatInput() {
               type="button"
               onClick={openFilePicker}
               disabled={isUploading || state.isStreaming}
+              aria-label="Upload files"
               className="flex items-center justify-center w-6 h-5
                          text-(--chat-text-muted) hover:text-(--chat-text-primary)
                          disabled:opacity-30 disabled:cursor-not-allowed
                          transition-colors"
-              title="Upload files"
             >
               <Paperclip
                 size={13}
                 className={isUploading ? "animate-pulse" : ""}
+                aria-hidden="true"
               />
             </button>
           </div>
@@ -232,28 +254,30 @@ export function ChatInput() {
             <button
               type="button"
               onClick={abort}
+              aria-label="Stop generation"
               className="flex items-center justify-center w-6 h-5
                          text-(--chat-error) hover:text-(--chat-bg) hover:bg-(--chat-error)
                          transition-colors"
               style={{ borderRadius: "var(--chat-radius)" }}
             >
-              <Square size={13} />
+              <Square size={13} aria-hidden="true" />
             </button>
           ) : (
             <button
               type="button"
               onClick={handleSubmit}
               disabled={!isConfigReady || !input.trim()}
+              aria-label="Send message"
               className="flex items-center justify-center w-6 h-5
                          text-(--chat-text-muted) hover:text-(--chat-text-primary)
                          disabled:opacity-30 disabled:cursor-not-allowed
                          transition-colors"
             >
-              <Send size={13} />
+              <Send size={13} aria-hidden="true" />
             </button>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

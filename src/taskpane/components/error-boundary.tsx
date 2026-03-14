@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/react";
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
+import { ErrorDisplay } from "./error-display";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -41,15 +42,16 @@ export class ErrorBoundary extends Component<
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, errorMessage: "", errorStack: "", showDetails: false });
+    this.setState({
+      hasError: false,
+      errorMessage: "",
+      errorStack: "",
+      showDetails: false,
+    });
   };
 
   private handleReload = () => {
     window.location.reload();
-  };
-
-  private toggleDetails = () => {
-    this.setState((prev) => ({ showDetails: !prev.showDetails }));
   };
 
   render() {
@@ -57,47 +59,37 @@ export class ErrorBoundary extends Component<
       return this.props.children;
     }
 
-    const { errorMessage, errorStack, showDetails } = this.state;
+    const { errorMessage, errorStack } = this.state;
 
     return (
       <div
         className="h-screen w-full flex items-center justify-center bg-(--chat-bg) px-4"
         style={{ fontFamily: "var(--chat-font-mono)" }}
       >
-        <div className="w-full max-w-xl border border-(--chat-border) bg-(--chat-bg-secondary) p-4 space-y-3">
+        <div className="w-full max-w-xl space-y-4">
           <div className="text-xs uppercase tracking-widest text-(--chat-text-muted)">
             Unhandled UI Error
           </div>
-          <div className="text-sm text-(--chat-text-primary)">
-            The chat UI hit an unexpected error.
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={this.handleRetry}
-              className="px-3 py-1.5 text-xs border border-(--chat-border) text-(--chat-text-primary) hover:bg-(--chat-bg)"
-            >
-              Try again
-            </button>
-            <button
-              type="button"
-              onClick={this.handleReload}
-              className="px-3 py-1.5 text-xs border border-(--chat-error) text-(--chat-error) hover:bg-(--chat-error) hover:text-(--chat-bg)"
-            >
-              Reload add-in
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={this.toggleDetails}
-            className="text-xs text-(--chat-text-muted) underline underline-offset-2 hover:text-(--chat-text-secondary)"
-          >
-            {showDetails ? "Hide details" : "Show details"}
-          </button>
-          {showDetails && (
-            <pre className="max-h-48 overflow-auto text-xs text-(--chat-error) bg-(--chat-bg) border border-(--chat-border) p-2 whitespace-pre-wrap break-words">
-              {errorStack || errorMessage}
-            </pre>
+
+          <ErrorDisplay
+            error={errorMessage}
+            onRetry={this.handleRetry}
+            onCustomAction={(action) => {
+              if (action === "Reload add-in") {
+                this.handleReload();
+              }
+            }}
+          />
+
+          {errorStack && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-(--chat-text-muted) hover:text-(--chat-text-secondary) underline underline-offset-2">
+                Technical details
+              </summary>
+              <pre className="mt-2 max-h-48 overflow-auto text-xs text-(--chat-error) bg-(--chat-bg) border border-(--chat-border) p-2 whitespace-pre-wrap break-words">
+                {errorStack}
+              </pre>
+            </details>
           )}
         </div>
       </div>
