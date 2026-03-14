@@ -22,6 +22,25 @@
   - `P4` Low: minor polish issue, copy issue, non-blocking visual defect
 - Do not mark the worksheet complete unless all timing fields and sign-off fields are filled in.
 
+## RC Critical Path Matrix (Fast Go/No-Go)
+
+Complete this matrix first on every release candidate before running the full worksheet.
+
+| ID | Flow | Pass Criteria | Result | Notes |
+|----|------|---------------|--------|-------|
+| RC-01 | Cold open | Taskpane paints and is interactive without reload | | |
+| RC-02 | First send | Prompt streams and completes with no stuck state | | |
+| RC-03 | Excel write | A mutating request updates expected cells only | | |
+| RC-04 | Abort | Abort during stream returns app to send-ready state | | |
+| RC-05 | Session restore | Reopen Excel and previous session loads correctly | | |
+| RC-06 | Upload + prompt | Uploaded file can be used in a successful prompt | | |
+| RC-07 | Provider error recovery | Invalid key/token shows actionable error and recovers after fix | | |
+| RC-08 | Tool approval safety | Destructive tool requires/obeys approval mode | | |
+
+**RC Decision Rule:**
+- Any `FAIL` in RC-01 to RC-05 => `NO-GO`
+- Up to one `FAIL` in RC-06 to RC-08 allowed only with documented workaround and explicit approval
+
 ---
 
 ## Environment Capture
