@@ -37,10 +37,18 @@ export function ChatInput() {
   const providerHealth = providerConfig
     ? evaluateProviderConfig(providerConfig)
     : null;
-  const isConfigReady = providerConfig
-    ? isProviderConfigReady(providerConfig) &&
-      providerHealth?.blocking.length === 0
-    : false;
+  const [isConfigReady, setIsConfigReady] = useState(false);
+
+  useEffect(() => {
+    if (!providerConfig) {
+      setIsConfigReady(false);
+      return;
+    }
+
+    isProviderConfigReady(providerConfig).then((ready) => {
+      setIsConfigReady(ready && providerHealth?.blocking.length === 0);
+    });
+  }, [providerConfig, providerHealth?.blocking.length]);
   const configBlockingMessage = providerHealth?.blocking[0] ?? null;
 
   const autoResize = useCallback(() => {

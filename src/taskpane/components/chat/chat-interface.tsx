@@ -25,7 +25,7 @@ import { getSessionMessageCount } from "../../../lib/storage";
 import { ToastProvider } from "../toast/toast-context";
 import { ChatProvider, useChat } from "./chat-context";
 import { ChatInput } from "./chat-input";
-import { MessageList } from "./message-list";
+import MessageList from "./message-list";
 import { HelpButton, HelpModal } from "./onboarding-help";
 import type { ChatTab } from "./types";
 

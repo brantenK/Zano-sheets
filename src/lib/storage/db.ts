@@ -56,10 +56,38 @@ const LEGACY_WORKBOOK_ID_KEY = "openexcel-workbook-id";
 // localStorage fallback so workbookId survives even when Office settings don't
 // persist (e.g. debug temp workbooks that aren't saved to disk).
 function getLsFallbackKey(): string {
-  const docUrl = Office.context.document.url ?? "";
+  let docUrl = "";
+  try {
+    docUrl = (globalThis as any).Office?.context?.document?.url ?? "";
+  } catch {
+    docUrl = "";
+  }
   // Keep the key short but unique per document path.
   const suffix = docUrl.slice(-80).replace(/[^a-z0-9._-]/gi, "_");
   return `zanosheets-wbid-fb-${suffix || "nourl"}`;
+}
+
+type OfficeSettingsLike = {
+  get: (key: string) => unknown;
+  set: (key: string, value: unknown) => void;
+  remove: (key: string) => void;
+  saveAsync: (
+    cb?: (result: { status?: string; error?: { message?: string } }) => void,
+  ) => void;
+};
+
+function getOfficeSettings(): OfficeSettingsLike | null {
+  try {
+    return (globalThis as any).Office?.context?.document?.settings ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isSucceededStatus(status: string | undefined): boolean {
+  const expected =
+    (globalThis as any).Office?.AsyncResultStatus?.Succeeded ?? "succeeded";
+  return (status ?? "").toLowerCase() === String(expected).toLowerCase();
 }
 
 function lsGet(key: string): string | null {
@@ -147,8 +175,23 @@ export function getSessionMessageCount(session: ChatSession): number {
 
 export async function getOrCreateWorkbookId(): Promise<string> {
   return new Promise((resolve) => {
-    const settings = Office.context.document.settings;
+    const settings = getOfficeSettings();
     const lsKey = getLsFallbackKey();
+
+    // When Office settings are unavailable (tests/browser contexts),
+    // keep using localStorage to provide a stable workbook id.
+    if (!settings) {
+      const existing = lsGet(lsKey);
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+
+      const created = crypto.randomUUID();
+      lsSet(lsKey, created);
+      resolve(created);
+      return;
+    }
 
     let workbookId = settings.get(WORKBOOK_ID_KEY) as string | null;
 
@@ -161,7 +204,7 @@ export async function getOrCreateWorkbookId(): Promise<string> {
         settings.set(WORKBOOK_ID_KEY, legacyWorkbookId);
         settings.remove(LEGACY_WORKBOOK_ID_KEY);
         settings.saveAsync((result) => {
-          if (result.status !== Office.AsyncResultStatus.Succeeded) {
+          if (!isSucceededStatus(result.status)) {
             handleError(
               new Error(
                 result.error?.message ?? "Failed to migrate workbook ID",
@@ -198,7 +241,7 @@ export async function getOrCreateWorkbookId(): Promise<string> {
     settings.set(WORKBOOK_ID_KEY, workbookId);
     lsSet(lsKey, workbookId);
     settings.saveAsync((result) => {
-      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+      if (!isSucceededStatus(result.status)) {
         handleError(
           new Error(result.error?.message ?? "Failed to save workbook ID"),
           "getOrCreateWorkbookId",

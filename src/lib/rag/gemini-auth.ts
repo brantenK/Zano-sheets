@@ -15,8 +15,10 @@ function normalizeGeminiModel(model: string | undefined): string {
   return model.toLowerCase().includes("gemini") ? model : DEFAULT_GEMINI_MODEL;
 }
 
-export function getGeminiRuntimeConfig(): GeminiRuntimeConfig | undefined {
-  const providerConfig = loadSavedConfig();
+export async function getGeminiRuntimeConfig(): Promise<
+  GeminiRuntimeConfig | undefined
+> {
+  const providerConfig = await loadSavedConfig();
   if (providerConfig?.provider === "google" && providerConfig.apiKey) {
     return {
       apiKey: providerConfig.apiKey,
@@ -36,6 +38,6 @@ export function getGeminiRuntimeConfig(): GeminiRuntimeConfig | undefined {
   };
 }
 
-export function getGeminiApiKey(): string | undefined {
-  return getGeminiRuntimeConfig()?.apiKey;
+export async function getGeminiApiKey(): Promise<string | undefined> {
+  return (await getGeminiRuntimeConfig())?.apiKey;
 }

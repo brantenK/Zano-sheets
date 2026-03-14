@@ -16,6 +16,7 @@ import {
   applyProxyToModel,
   evaluateProviderConfig,
   loadSavedConfig,
+  type ProviderConfig,
   type ThinkingLevel,
 } from "../provider-config";
 import { loadWebConfig } from "../web/config";
@@ -76,7 +77,7 @@ function thinkingToReasoning(
 }
 
 async function getActiveApiKey(
-  config: NonNullable<ReturnType<typeof loadSavedConfig>>,
+  config: ProviderConfig,
   options?: { forceRefresh?: boolean },
 ): Promise<string> {
   const forceRefresh = options?.forceRefresh ?? false;
@@ -84,7 +85,7 @@ async function getActiveApiKey(
     return config.apiKey;
   }
 
-  const creds = loadOAuthCredentials(config.provider);
+  const creds = await loadOAuthCredentials(config.provider);
   if (!creds) {
     throw new Error(
       "OAuth credentials are missing. Reconnect the provider in Settings.",
@@ -101,13 +102,13 @@ async function getActiveApiKey(
     config.proxyUrl,
     config.useProxy,
   );
-  saveOAuthCredentials(config.provider, refreshed);
+  await saveOAuthCredentials(config.provider, refreshed);
   return refreshed.access;
 }
 
 async function synthesizeResearch(
   prompt: string,
-  config: NonNullable<ReturnType<typeof loadSavedConfig>>,
+  config: ProviderConfig,
 ): Promise<string> {
   const resolvedModel = resolveAgentModel(config);
   if (!resolvedModel.baseModel) {
@@ -213,7 +214,7 @@ export async function executeDeepResearch(
   query: string,
   onProgress: (msg: string) => void,
 ): Promise<string> {
-  const config = loadSavedConfig();
+  const config = await loadSavedConfig();
   if (!config) {
     throw new Error(
       "No LLM API configuration found. Please setup OpenRouter, Gemini, or OpenAI in settings.",
@@ -221,7 +222,8 @@ export async function executeDeepResearch(
   }
 
   if (config.authMethod === "oauth") {
-    if (!config.apiKey && !loadOAuthCredentials(config.provider)) {
+    const oauthCreds = await loadOAuthCredentials(config.provider);
+    if (!config.apiKey && !oauthCreds) {
       throw new Error(
         "No OAuth session found. Reconnect your provider in Settings before using deep research.",
       );

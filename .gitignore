@@ -28,3 +28,10 @@ headless-test/
 
 # Claude CLI local settings
 .claude/settings.local.json
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# Backup files
+*.backup

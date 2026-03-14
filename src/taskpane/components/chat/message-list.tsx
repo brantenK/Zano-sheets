@@ -13,6 +13,7 @@ import {
 import type { AnchorHTMLAttributes, ComponentType, ReactNode } from "react";
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -31,7 +32,7 @@ import { ToolResultDisplay } from "../error-display";
 import { useChat } from "./chat-context";
 import { ToolProgress } from "./tool-progress";
 
-function ThinkingBlock({
+const ThinkingBlock = memo(function ThinkingBlock({
   thinking,
   isStreaming,
 }: {
@@ -40,11 +41,15 @@ function ThinkingBlock({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const handleToggle = useCallback(() => {
+    setIsExpanded((prev) => !prev);
+  }, []);
+
   return (
     <div className="mb-2 border border-(--chat-border) bg-(--chat-bg) rounded-sm overflow-hidden">
       <button
         type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggle}
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? "Collapse" : "Expand"} reasoning`}
         className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] uppercase tracking-wider text-(--chat-accent) hover:bg-(--chat-bg-secondary) transition-colors"
@@ -70,7 +75,7 @@ function ThinkingBlock({
       )}
     </div>
   );
-}
+});
 
 type ToolCallPart = Extract<MessagePart, { type: "toolCall" }>;
 
@@ -91,9 +96,24 @@ const LazyStreamdown = lazy(async () => {
   };
 });
 
-function DirtyRangeLink({ range }: { range: DirtyRange }) {
+const DirtyRangeLink = memo(function DirtyRangeLink({
+  range,
+}: {
+  range: DirtyRange;
+}) {
   const { getSheetName } = useChat();
   const sheetName = getSheetName(range.sheetId);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const navRange = range.range === "*" ? undefined : range.range;
+      navigateTo(range.sheetId, navRange).catch((err) => {
+        console.error("[DirtyRange] Navigation failed:", err);
+      });
+    },
+    [range],
+  );
 
   if (range.sheetId < 0) {
     const label =
@@ -112,25 +132,24 @@ function DirtyRangeLink({ range }: { range: DirtyRange }) {
     <button
       type="button"
       className="text-(--chat-warning) hover:underline cursor-pointer"
-      onClick={(e) => {
-        e.stopPropagation();
-        const navRange = range.range === "*" ? undefined : range.range;
-        navigateTo(range.sheetId, navRange).catch((err) => {
-          console.error("[DirtyRange] Navigation failed:", err);
-        });
-      }}
+      onClick={handleClick}
     >
       {label}
     </button>
   );
-}
+});
 
-function DirtyRangeLinks({ ranges }: { ranges: DirtyRange[] }) {
+const DirtyRangeLinks = memo(function DirtyRangeLinks({
+  ranges,
+}: {
+  ranges: DirtyRange[];
+}) {
   const { getSheetName } = useChat();
   const merged = useMemo(() => mergeRanges(ranges), [ranges]);
 
-  const validRanges = merged.filter(
-    (r) => r.sheetId < 0 || getSheetName(r.sheetId),
+  const validRanges = useMemo(
+    () => merged.filter((r) => r.sheetId < 0 || getSheetName(r.sheetId)),
+    [merged, getSheetName],
   );
 
   if (validRanges.length === 0) return null;
@@ -145,21 +164,34 @@ function DirtyRangeLinks({ ranges }: { ranges: DirtyRange[] }) {
       ))}
     </>
   );
-}
+});
 
-function DirtyRangeSummary({ ranges }: { ranges: DirtyRange[] }) {
+const DirtyRangeSummary = memo(function DirtyRangeSummary({
+  ranges,
+}: {
+  ranges: DirtyRange[];
+}) {
   const { getSheetName } = useChat();
   const merged = useMemo(() => mergeRanges(ranges), [ranges]);
 
-  if (merged.length === 0) return null;
+  const formatBrief = useCallback(
+    (range: DirtyRange): string | null => {
+      if (range.sheetId < 0)
+        return range.range === "*" ? "unknown" : range.range;
+      const sheetName = getSheetName(range.sheetId);
+      if (!sheetName) return null;
+      if (range.range === "*") return sheetName;
+      return `${range.range}`;
+    },
+    [getSheetName],
+  );
 
-  const formatBrief = (range: DirtyRange): string | null => {
-    if (range.sheetId < 0) return range.range === "*" ? "unknown" : range.range;
-    const sheetName = getSheetName(range.sheetId);
-    if (!sheetName) return null;
-    if (range.range === "*") return sheetName;
-    return `${range.range}`;
-  };
+  const validRanges = useMemo(
+    () => merged.filter((r) => r.sheetId < 0 || getSheetName(r.sheetId)),
+    [merged, getSheetName],
+  );
+
+  if (merged.length === 0) return null;
 
   if (merged.length === 1) {
     const brief = formatBrief(merged[0]);
@@ -171,9 +203,6 @@ function DirtyRangeSummary({ ranges }: { ranges: DirtyRange[] }) {
     );
   }
 
-  const validRanges = merged.filter(
-    (r) => r.sheetId < 0 || getSheetName(r.sheetId),
-  );
   if (validRanges.length === 0) return null;
 
   return (
@@ -181,9 +210,13 @@ function DirtyRangeSummary({ ranges }: { ranges: DirtyRange[] }) {
       → {validRanges.length} ranges
     </span>
   );
-}
+});
 
-function ToolCallBlock({ part }: { part: ToolCallPart }) {
+const ToolCallBlock = memo(function ToolCallBlock({
+  part,
+}: {
+  part: ToolCallPart;
+}) {
   const { getSheetName } = useChat();
   const [isExpanded, setIsExpanded] = useState(false);
   const explanation = (part.args as { explanation?: string })?.explanation;
@@ -197,33 +230,51 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
     return dirtyRanges.some((r) => r.sheetId < 0 || getSheetName(r.sheetId));
   }, [dirtyRanges, getSheetName]);
 
-  const statusIcon = {
-    pending: (
-      <CheckCircle2
-        size={10}
-        className="text-(--chat-accent)"
-        aria-hidden="true"
-      />
-    ),
-    running: (
-      <Loader2
-        size={10}
-        className="animate-spin text-(--chat-accent)"
-        aria-hidden="true"
-      />
-    ),
-    complete: (
-      <CheckCircle2 size={10} className="text-green-500" aria-hidden="true" />
-    ),
-    error: <XCircle size={10} className="text-red-500" aria-hidden="true" />,
-  }[part.status];
+  const handleToggle = useCallback(() => {
+    setIsExpanded((prev) => !prev);
+  }, []);
 
-  const statusLabel = {
-    pending: "Pending",
-    running: "Running",
-    complete: "Complete",
-    error: "Error",
-  }[part.status];
+  const statusIcon = useMemo(
+    () =>
+      ({
+        pending: (
+          <CheckCircle2
+            size={10}
+            className="text-(--chat-accent)"
+            aria-hidden="true"
+          />
+        ),
+        running: (
+          <Loader2
+            size={10}
+            className="animate-spin text-(--chat-accent)"
+            aria-hidden="true"
+          />
+        ),
+        complete: (
+          <CheckCircle2
+            size={10}
+            className="text-green-500"
+            aria-hidden="true"
+          />
+        ),
+        error: (
+          <XCircle size={10} className="text-red-500" aria-hidden="true" />
+        ),
+      })[part.status],
+    [part.status],
+  );
+
+  const statusLabel = useMemo(
+    () =>
+      ({
+        pending: "Pending",
+        running: "Running",
+        complete: "Complete",
+        error: "Error",
+      })[part.status],
+    [part.status],
+  );
 
   return (
     <div
@@ -231,7 +282,7 @@ function ToolCallBlock({ part }: { part: ToolCallPart }) {
     >
       <button
         type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggle}
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? "Collapse" : "Expand"} ${explanation || part.name} - Status: ${statusLabel}`}
         className={`w-full flex items-center gap-1.5 px-2 py-1 text-[10px] tracking-wider text-(--chat-text-secondary) hover:bg-(--chat-bg-secondary) transition-colors ${explanation ? "normal-case" : "uppercase"}`}
@@ -312,7 +363,7 @@ ${JSON.stringify(part.args, null, 2)}
       )}
     </div>
   );
-}
+});
 
 function parseCitationUri(
   href: string,
@@ -329,12 +380,20 @@ function parseCitationUri(
   return Number.isNaN(sheetId) ? null : { sheetId, range };
 }
 
-function CitationLink({
+const CitationLink = memo(function CitationLink({
   href,
   children,
   ...props
 }: AnchorHTMLAttributes<HTMLAnchorElement>) {
   const citation = href ? parseCitationUri(href) : null;
+
+  const handleClick = useCallback(() => {
+    if (citation) {
+      navigateTo(citation.sheetId, citation.range).catch((err) => {
+        console.error("[Citation] Navigation failed:", err);
+      });
+    }
+  }, [citation]);
 
   if (!citation) {
     return (
@@ -348,24 +407,24 @@ function CitationLink({
     <button
       type="button"
       className="text-(--chat-accent) hover:underline cursor-pointer"
-      onClick={() => {
-        navigateTo(citation.sheetId, citation.range).catch((err) => {
-          console.error("[Citation] Navigation failed:", err);
-        });
-      }}
+      onClick={handleClick}
     >
       {children}
     </button>
   );
-}
+});
 
 const markdownComponents: MarkdownComponentMap = { a: CitationLink };
 
-function MarkdownFallback({ text }: { text: string }) {
+const MarkdownFallback = memo(function MarkdownFallback({
+  text,
+}: {
+  text: string;
+}) {
   return <div className="whitespace-pre-wrap break-words">{text}</div>;
-}
+});
 
-function DeferredMarkdown({
+const DeferredMarkdown = memo(function DeferredMarkdown({
   text,
   isAnimating,
   components,
@@ -381,9 +440,9 @@ function DeferredMarkdown({
       </LazyStreamdown>
     </Suspense>
   );
-}
+});
 
-function MarkdownContent({
+const MarkdownContent = memo(function MarkdownContent({
   text,
   isAnimating,
 }: {
@@ -399,7 +458,7 @@ function MarkdownContent({
       />
     </div>
   );
-}
+});
 
 function renderParts(
   parts: MessagePart[],
@@ -442,7 +501,11 @@ function renderParts(
   });
 }
 
-function UserBubble({ message }: { message: ChatMessage }) {
+const UserBubble = memo(function UserBubble({
+  message,
+}: {
+  message: ChatMessage;
+}) {
   return (
     <section
       aria-label="Your message"
@@ -455,8 +518,8 @@ function UserBubble({ message }: { message: ChatMessage }) {
       {renderParts(message.parts, false, message.id)}
     </section>
   );
-}
-function FullScreenModal({
+});
+const FullScreenModal = memo(function FullScreenModal({
   onClose,
   children,
 }: {
@@ -486,9 +549,9 @@ function FullScreenModal({
       <div className="flex-1 overflow-auto p-6 select-text">{children}</div>
     </div>
   );
-}
+});
 
-function AssistantBubble({
+const AssistantBubble = memo(function AssistantBubble({
   messages,
   isStreaming,
 }: {
@@ -496,53 +559,68 @@ function AssistantBubble({
   isStreaming: boolean;
 }) {
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const allParts: { part: MessagePart; messageId: string; isLast: boolean }[] =
-    [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    const isLastMessage = i === messages.length - 1;
-    for (let j = 0; j < msg.parts.length; j++) {
-      allParts.push({
-        part: msg.parts[j],
-        messageId: msg.id,
-        isLast: isLastMessage && j === msg.parts.length - 1,
-      });
-    }
-  }
 
-  const content = (
-    <>
-      {allParts.map(({ part, messageId, isLast }, idx) => {
-        const key =
-          part.type === "toolCall"
-            ? part.id
-            : `${messageId}-${part.type}-${idx}`;
-        if (part.type === "thinking") {
+  const allParts = useMemo(() => {
+    const parts: { part: MessagePart; messageId: string; isLast: boolean }[] =
+      [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const isLastMessage = i === messages.length - 1;
+      for (let j = 0; j < msg.parts.length; j++) {
+        parts.push({
+          part: msg.parts[j],
+          messageId: msg.id,
+          isLast: isLastMessage && j === msg.parts.length - 1,
+        });
+      }
+    }
+    return parts;
+  }, [messages]);
+
+  const handleCloseFullScreen = useCallback(() => {
+    setIsFullScreen(false);
+  }, []);
+
+  const handleOpenFullScreen = useCallback(() => {
+    setIsFullScreen(true);
+  }, []);
+
+  const content = useMemo(
+    () => (
+      <>
+        {allParts.map(({ part, messageId, isLast }, idx) => {
+          const key =
+            part.type === "toolCall"
+              ? part.id
+              : `${messageId}-${part.type}-${idx}`;
+          if (part.type === "thinking") {
+            return (
+              <ThinkingBlock
+                key={key}
+                thinking={part.thinking}
+                isStreaming={isStreaming && isLast}
+              />
+            );
+          }
+          if (part.type === "toolCall") {
+            return <ToolCallBlock key={key} part={part} />;
+          }
           return (
-            <ThinkingBlock
+            <MarkdownContent
               key={key}
-              thinking={part.thinking}
-              isStreaming={isStreaming && isLast}
+              text={part.text}
+              isAnimating={isStreaming && isLast && part.type === "text"}
             />
           );
-        }
-        if (part.type === "toolCall") {
-          return <ToolCallBlock key={key} part={part} />;
-        }
-        return (
-          <MarkdownContent
-            key={key}
-            text={part.text}
-            isAnimating={isStreaming && isLast && part.type === "text"}
-          />
-        );
-      })}
-      {isStreaming && allParts.length === 0 && (
-        <span className="animate-pulse" aria-hidden="true">
-          ▊
-        </span>
-      )}
-    </>
+        })}
+        {isStreaming && allParts.length === 0 && (
+          <span className="animate-pulse" aria-hidden="true">
+            ▊
+          </span>
+        )}
+      </>
+    ),
+    [allParts, isStreaming],
   );
 
   return (
@@ -557,7 +635,7 @@ function AssistantBubble({
       {!isStreaming && allParts.length > 0 && (
         <button
           type="button"
-          onClick={() => setIsFullScreen(true)}
+          onClick={handleOpenFullScreen}
           aria-label="Expand message"
           className="absolute -right-2 -top-2 p-1.5 bg-(--chat-bg) border border-(--chat-border) rounded-full shadow-sm
                      opacity-0 group-hover:opacity-100 hover:text-(--chat-accent) transition-all z-10"
@@ -569,13 +647,13 @@ function AssistantBubble({
       {content}
 
       {isFullScreen && (
-        <FullScreenModal onClose={() => setIsFullScreen(false)}>
+        <FullScreenModal onClose={handleCloseFullScreen}>
           <div className="max-w-3xl mx-auto">{content}</div>
         </FullScreenModal>
       )}
     </section>
   );
-}
+});
 
 type MessageGroup =
   | { type: "user"; message: ChatMessage }
@@ -604,7 +682,7 @@ function groupMessages(messages: ChatMessage[]): MessageGroup[] {
   return groups;
 }
 
-export function MessageList() {
+const MessageList = memo(function MessageList() {
   const { state } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
@@ -624,17 +702,34 @@ export function MessageList() {
   });
 
   // Get tool calls from the last assistant message for progress tracking
-  const lastAssistantMessage = state.messages
-    .filter((m) => m.role === "assistant")
-    .pop();
-  const toolCalls =
-    lastAssistantMessage?.parts.filter(
-      (p): p is Extract<MessagePart, { type: "toolCall" }> =>
-        p.type === "toolCall",
-    ) ?? [];
+  const lastAssistantMessage = useMemo(
+    () => state.messages.filter((m) => m.role === "assistant").pop(),
+    [state.messages],
+  );
+
+  const toolCalls = useMemo(
+    () =>
+      lastAssistantMessage?.parts.filter(
+        (p): p is Extract<MessagePart, { type: "toolCall" }> =>
+          p.type === "toolCall",
+      ) ?? [],
+    [lastAssistantMessage],
+  );
 
   // Find currently running tool index
-  const currentToolIndex = toolCalls.findIndex((t) => t.status === "running");
+  const currentToolIndex = useMemo(
+    () => toolCalls.findIndex((t) => t.status === "running"),
+    [toolCalls],
+  );
+
+  const groups = useMemo(() => groupMessages(state.messages), [state.messages]);
+
+  const lastGroup = useMemo(() => groups[groups.length - 1], [groups]);
+
+  const isStreamingAssistant = useMemo(
+    () => state.isStreaming && lastGroup?.type === "assistant",
+    [state.isStreaming, lastGroup],
+  );
 
   if (state.messages.length === 0) {
     return (
@@ -653,11 +748,6 @@ export function MessageList() {
       </section>
     );
   }
-
-  const groups = groupMessages(state.messages);
-  const lastGroup = groups[groups.length - 1];
-  const isStreamingAssistant =
-    state.isStreaming && lastGroup?.type === "assistant";
 
   return (
     <section
@@ -696,4 +786,6 @@ export function MessageList() {
       )}
     </section>
   );
-}
+});
+
+export default MessageList;

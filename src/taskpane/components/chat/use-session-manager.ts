@@ -307,8 +307,8 @@ export function useSessionManager(deps: SessionManagerDeps) {
         await syncSkillsToVfs();
 
         // Now apply provider config -- agent gets the correct system prompt with skills
-        const saved = loadSavedConfig();
-        if (saved && isProviderConfigReady(saved)) {
+        const saved = await loadSavedConfig();
+        if (saved && (await isProviderConfigReady(saved))) {
           // Preload models for the provider so that manually-added or extra models
           // (e.g. new OpenRouter models) are available to resolveAgentModel.
           await loadModelsForProvider(saved.provider).catch(() => {});

@@ -42,43 +42,43 @@ beforeEach(() => {
 });
 
 describe("loadApiKey / saveApiKey", () => {
-  it("returns empty string when nothing is stored", () => {
-    expect(loadApiKey("openrouter")).toBe("");
+  it("returns empty string when nothing is stored", async () => {
+    expect(await loadApiKey("openrouter")).toBe("");
   });
 
-  it("returns the saved key for the matching provider", () => {
-    saveApiKey("openrouter", "sk-or-test-123");
-    expect(loadApiKey("openrouter")).toBe("sk-or-test-123");
+  it("returns the saved key for the matching provider", async () => {
+    await saveApiKey("openrouter", "sk-or-test-123");
+    expect(await loadApiKey("openrouter")).toBe("sk-or-test-123");
   });
 
-  it("stores keys independently per provider", () => {
-    saveApiKey("openrouter", "or-key");
-    saveApiKey("openai", "oai-key");
-    expect(loadApiKey("openrouter")).toBe("or-key");
-    expect(loadApiKey("openai")).toBe("oai-key");
-    expect(loadApiKey("anthropic")).toBe("");
+  it("stores keys independently per provider", async () => {
+    await saveApiKey("openrouter", "or-key");
+    await saveApiKey("openai", "oai-key");
+    expect(await loadApiKey("openrouter")).toBe("or-key");
+    expect(await loadApiKey("openai")).toBe("oai-key");
+    expect(await loadApiKey("anthropic")).toBe("");
   });
 
-  it("overwrites an existing key for the same provider", () => {
-    saveApiKey("openrouter", "old-key");
-    saveApiKey("openrouter", "new-key");
-    expect(loadApiKey("openrouter")).toBe("new-key");
+  it("overwrites an existing key for the same provider", async () => {
+    await saveApiKey("openrouter", "old-key");
+    await saveApiKey("openrouter", "new-key");
+    expect(await loadApiKey("openrouter")).toBe("new-key");
   });
 
-  it("does not affect other providers when one key is updated", () => {
-    saveApiKey("openai", "oai-key");
-    saveApiKey("openrouter", "or-key-v1");
-    saveApiKey("openrouter", "or-key-v2");
-    expect(loadApiKey("openai")).toBe("oai-key");
+  it("does not affect other providers when one key is updated", async () => {
+    await saveApiKey("openai", "oai-key");
+    await saveApiKey("openrouter", "or-key-v1");
+    await saveApiKey("openrouter", "or-key-v2");
+    expect(await loadApiKey("openai")).toBe("oai-key");
   });
 });
 
 describe("loadSavedConfig", () => {
-  it("returns null when nothing is stored", () => {
-    expect(loadSavedConfig()).toBeNull();
+  it("returns null when nothing is stored", async () => {
+    await expect(loadSavedConfig()).resolves.toBeNull();
   });
 
-  it("defaults proxy mode to off when the saved value is missing", () => {
+  it("defaults proxy mode to off when the saved value is missing", async () => {
     store["zanosheets-config-v2"] = JSON.stringify({
       provider: "openai",
       model: "gpt-4o",
@@ -88,11 +88,11 @@ describe("loadSavedConfig", () => {
       authMethod: "apikey",
     });
 
-    const loaded = loadSavedConfig();
+    const loaded = await loadSavedConfig();
     expect(loaded?.useProxy).toBe(false);
   });
 
-  it("returns null for invalid JSON in storage", () => {
+  it("returns null for invalid JSON in storage", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -100,7 +100,7 @@ describe("loadSavedConfig", () => {
       .spyOn(console, "warn")
       .mockImplementation(() => {});
     store["zanosheets-config-v2"] = "{invalid json}";
-    expect(loadSavedConfig()).toBeNull();
+    await expect(loadSavedConfig()).resolves.toBeNull();
     consoleError.mockRestore();
     consoleWarn.mockRestore();
   });
@@ -118,9 +118,9 @@ describe("saveConfig / loadSavedConfig round-trip", () => {
     authMethod: "apikey" as const,
   };
 
-  it("round-trips provider, model, and settings", () => {
+  it("round-trips provider, model, and settings", async () => {
     saveConfig(baseConfig);
-    const loaded = loadSavedConfig();
+    const loaded = await loadSavedConfig();
     expect(loaded).not.toBeNull();
     expect(loaded?.provider).toBe("openrouter");
     expect(loaded?.model).toBe("gpt-4o");
@@ -130,11 +130,11 @@ describe("saveConfig / loadSavedConfig round-trip", () => {
     expect(loaded?.authMethod).toBe("apikey");
   });
 
-  it("loads the apiKey from the per-provider store, not raw config", () => {
+  it("loads the apiKey from the per-provider store, not raw config", async () => {
     // saveConfig no longer writes the key; callers must use saveApiKey explicitly
-    saveApiKey(baseConfig.provider, baseConfig.apiKey);
+    await saveApiKey(baseConfig.provider, baseConfig.apiKey);
     saveConfig(baseConfig);
-    const loaded = loadSavedConfig();
+    const loaded = await loadSavedConfig();
     expect(loaded?.apiKey).toBe("sk-or-test");
   });
 
@@ -144,7 +144,7 @@ describe("saveConfig / loadSavedConfig round-trip", () => {
     expect(raw.apiKey).toBe("");
   });
 
-  it("returns empty apiKey when no key has been saved for the provider", () => {
+  it("returns empty apiKey when no key has been saved for the provider", async () => {
     // Save config without going through saveApiKey
     store["zanosheets-config-v2"] = JSON.stringify({
       provider: "groq",
@@ -156,7 +156,7 @@ describe("saveConfig / loadSavedConfig round-trip", () => {
       followMode: true,
       authMethod: "apikey",
     });
-    const loaded = loadSavedConfig();
+    const loaded = await loadSavedConfig();
     expect(loaded?.apiKey ?? "").toBe("");
   });
 });

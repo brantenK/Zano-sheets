@@ -54,7 +54,7 @@ export const queryKnowledgeBaseTool = defineTool({
       );
     }
 
-    const runtime = getGeminiRuntimeConfig();
+    const runtime = await getGeminiRuntimeConfig();
     if (!runtime) {
       throw new Error(
         "Gemini is not configured. Use Google as the active chat provider or add a Gemini override key in Web settings.",
@@ -92,7 +92,7 @@ export const queryKnowledgeBaseTool = defineTool({
       },
     ];
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtime.model)}:generateContent?key=${runtime.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtime.model)}:generateContent`;
     const KB_TIMEOUT_MS = 30000;
     const MAX_RETRIES = 2;
     let lastError: Error | null = null;
@@ -104,7 +104,10 @@ export const queryKnowledgeBaseTool = defineTool({
 
         const res = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": runtime.apiKey,
+          },
           body: JSON.stringify({ contents }),
           signal: controller.signal,
         });

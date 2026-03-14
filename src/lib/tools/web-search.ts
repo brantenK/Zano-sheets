@@ -20,8 +20,8 @@ function buildSearchProviderOrder(
   return [...new Set(providers.filter(Boolean))];
 }
 
-function getProxyUrl(): string | undefined {
-  const config = loadSavedConfig();
+async function getProxyUrl(): Promise<string | undefined> {
+  const config = await loadSavedConfig();
   return config?.useProxy && config?.proxyUrl ? config.proxyUrl : undefined;
 }
 
@@ -77,7 +77,7 @@ export const webSearchTool = defineTool({
   execute: async (_toolCallId, params, signal) => {
     try {
       const webConfig = loadWebConfig();
-      const proxyUrl = getProxyUrl();
+      const proxyUrl = await getProxyUrl();
       requireProxyOrThrow(proxyUrl);
       const providerOrder = buildSearchProviderOrder(
         webConfig.searchProvider,

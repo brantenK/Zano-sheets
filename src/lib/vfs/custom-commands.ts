@@ -896,7 +896,7 @@ const webSearchCmd: Command = defineCommand("web-search", async (args) => {
         page,
       },
       {
-        proxyUrl: getProxyUrl(),
+        proxyUrl: await getProxyUrl(),
         apiKeys: webConfig.apiKeys,
       },
       webConfig.searchProvider,
@@ -928,8 +928,8 @@ const webSearchCmd: Command = defineCommand("web-search", async (args) => {
   }
 });
 
-function getProxyUrl(): string | undefined {
-  const config = loadSavedConfig();
+async function getProxyUrl(): Promise<string | undefined> {
+  const config = await loadSavedConfig();
   return config?.useProxy && config?.proxyUrl ? config.proxyUrl : undefined;
 }
 
@@ -950,7 +950,7 @@ const webFetchCmd: Command = defineCommand("web-fetch", async (args, ctx) => {
     const result = await fetchWeb(
       url,
       {
-        proxyUrl: getProxyUrl(),
+        proxyUrl: await getProxyUrl(),
         apiKeys: webConfig.apiKeys,
       },
       webConfig.fetchProvider,

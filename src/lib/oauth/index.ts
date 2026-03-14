@@ -15,6 +15,11 @@ import {
   getSessionStorage,
 } from "../credential-storage";
 import { handleError } from "../silent-error-handler";
+import {
+  decryptValue,
+  encryptValue,
+  isEncrypted,
+} from "../storage/crypto-utils";
 
 export type OAuthFlowState =
   | { step: "idle" }
@@ -49,11 +54,24 @@ function parseOAuthStore(raw: string | null): Record<string, OAuthCredentials> {
   return parsed as Record<string, OAuthCredentials>;
 }
 
-function loadOAuthStore(): Record<string, OAuthCredentials> {
+async function loadOAuthStore(): Promise<Record<string, OAuthCredentials>> {
   const storage = getCredentialStorage();
   const currentRaw = storage.getItem(OAUTH_STORAGE_KEY);
   if (currentRaw) {
-    return parseOAuthStore(currentRaw);
+    // Try to decrypt; if it's encrypted, decrypt it
+    let decryptedRaw = currentRaw;
+    if (isEncrypted(currentRaw)) {
+      const decrypted = await decryptValue(currentRaw);
+      if (decrypted !== null) {
+        decryptedRaw = decrypted;
+      } else {
+        // Decryption failed - treat as plaintext (migration)
+        console.warn(
+          "[OAuth] loadOAuthStore: Decryption failed, treating as plaintext",
+        );
+      }
+    }
+    return parseOAuthStore(decryptedRaw);
   }
 
   const legacyRaw = storage.getItem(LEGACY_OAUTH_STORAGE_KEY);
@@ -61,7 +79,9 @@ function loadOAuthStore(): Record<string, OAuthCredentials> {
 
   const legacyStore = parseOAuthStore(legacyRaw);
   try {
-    storage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(legacyStore));
+    // Encrypt the legacy data before storing
+    const encrypted = await encryptValue(JSON.stringify(legacyStore));
+    storage.setItem(OAUTH_STORAGE_KEY, encrypted);
     storage.removeItem(LEGACY_OAUTH_STORAGE_KEY);
   } catch (err) {
     // Migration may fail if storage is full or unavailable; log but continue
@@ -92,11 +112,11 @@ function validateOAuthCredentials(
   };
 }
 
-export function loadOAuthCredentials(
+export async function loadOAuthCredentials(
   provider: string,
-): OAuthCredentials | null {
+): Promise<OAuthCredentials | null> {
   try {
-    const store = loadOAuthStore();
+    const store = await loadOAuthStore();
     const credentials = store[provider];
     if (!credentials) {
       return null;
@@ -109,15 +129,17 @@ export function loadOAuthCredentials(
   }
 }
 
-export function saveOAuthCredentials(
+export async function saveOAuthCredentials(
   provider: string,
   creds: OAuthCredentials,
-): OAuthStorageWriteResult {
+): Promise<OAuthStorageWriteResult> {
   try {
-    const store = loadOAuthStore();
+    const store = await loadOAuthStore();
     store[provider] = validateOAuthCredentials(creds, "OAuth credential save");
     const storage = getCredentialStorage();
-    storage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
+    // Encrypt the store before saving
+    const encrypted = await encryptValue(JSON.stringify(store));
+    storage.setItem(OAUTH_STORAGE_KEY, encrypted);
     return { ok: true };
   } catch (error) {
     handleError(error, "OAuth credential save", { logToTelemetry: true });
@@ -128,14 +150,16 @@ export function saveOAuthCredentials(
   }
 }
 
-export function removeOAuthCredentials(
+export async function removeOAuthCredentials(
   provider: string,
-): OAuthStorageWriteResult {
+): Promise<OAuthStorageWriteResult> {
   try {
-    const store = loadOAuthStore();
+    const store = await loadOAuthStore();
     delete store[provider];
     const storage = getCredentialStorage();
-    storage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(store));
+    // Encrypt the store before saving
+    const encrypted = await encryptValue(JSON.stringify(store));
+    storage.setItem(OAUTH_STORAGE_KEY, encrypted);
     return { ok: true };
   } catch (error) {
     handleError(error, "OAuth credential remove", { logToTelemetry: true });
@@ -412,7 +436,7 @@ export async function getValidOAuthCredentials(
   proxyUrl: string = "",
   useProxy: boolean = false,
 ): Promise<OAuthCredentials | null> {
-  const creds = loadOAuthCredentials(provider);
+  const creds = await loadOAuthCredentials(provider);
   if (!creds) {
     return null;
   }
@@ -426,7 +450,7 @@ export async function getValidOAuthCredentials(
         proxyUrl,
         useProxy,
       );
-      const saveResult = saveOAuthCredentials(provider, refreshed);
+      const saveResult = await saveOAuthCredentials(provider, refreshed);
       if (!saveResult.ok) {
         handleError(
           new Error(saveResult.error || "Failed to save refreshed token"),

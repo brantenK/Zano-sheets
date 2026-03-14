@@ -28,7 +28,7 @@ export async function uploadFileToGemini(
   displayName: string,
   mimeType: string,
 ): Promise<KnowledgeBaseFileRecord> {
-  const runtime = getGeminiRuntimeConfig();
+  const runtime = await getGeminiRuntimeConfig();
   if (!runtime) {
     throw new Error(
       "Gemini is not configured. Use Google as the active chat provider or add a Gemini override key in Web settings.",
@@ -36,7 +36,7 @@ export async function uploadFileToGemini(
   }
 
   // Upload requires two steps or a multipart request. We use multipart for simplicity.
-  const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${runtime.apiKey}`;
+  const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files`;
 
   const metadata = {
     file: { displayName, mimeType },
@@ -53,6 +53,7 @@ export async function uploadFileToGemini(
     method: "POST",
     headers: {
       "X-Goog-Upload-Protocol": "multipart",
+      "x-goog-api-key": runtime.apiKey,
     },
     body: formData,
   });
@@ -79,14 +80,18 @@ export async function uploadFileToGemini(
 export async function getFileStatus(
   fileName: string,
 ): Promise<KnowledgeBaseFileRecord> {
-  const runtime = getGeminiRuntimeConfig();
+  const runtime = await getGeminiRuntimeConfig();
   if (!runtime) {
     throw new Error(
       "Gemini is not configured. Use Google as the active chat provider or add a Gemini override key in Web settings.",
     );
   }
-  const url = `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${runtime.apiKey}`;
-  const res = await fetch(url);
+  const url = `https://generativelanguage.googleapis.com/v1beta/${fileName}`;
+  const res = await fetch(url, {
+    headers: {
+      "x-goog-api-key": runtime.apiKey,
+    },
+  });
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(`Failed to get file status: ${res.status} ${errText}`);

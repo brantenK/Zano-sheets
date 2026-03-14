@@ -57,23 +57,23 @@ describe("OAuth credential storage", () => {
     consoleError.mockRestore();
   });
 
-  it("loads valid saved credentials", () => {
-    const result = saveOAuthCredentials("anthropic", {
+  it("loads valid saved credentials", async () => {
+    const result = await saveOAuthCredentials("anthropic", {
       access: "access-token",
       refresh: "refresh-token",
       expires: 123456,
     });
 
     expect(result.ok).toBe(true);
-    expect(loadOAuthCredentials("anthropic")).toEqual({
+    await expect(loadOAuthCredentials("anthropic")).resolves.toEqual({
       access: "access-token",
       refresh: "refresh-token",
       expires: 123456,
     });
   });
 
-  it("rejects invalid credentials during save", () => {
-    const result = saveOAuthCredentials("anthropic", {
+  it("rejects invalid credentials during save", async () => {
+    const result = await saveOAuthCredentials("anthropic", {
       access: "access-token",
       refresh: "",
       expires: 123456,
@@ -83,10 +83,10 @@ describe("OAuth credential storage", () => {
       ok: false,
       error: "Failed to save OAuth credentials in browser storage.",
     });
-    expect(loadOAuthCredentials("anthropic")).toBeNull();
+    await expect(loadOAuthCredentials("anthropic")).resolves.toBeNull();
   });
 
-  it("ignores malformed credentials already present in storage", () => {
+  it("ignores malformed credentials already present in storage", async () => {
     store["zanosheets-oauth-credentials"] = JSON.stringify({
       anthropic: {
         access: "access-token",
@@ -94,6 +94,6 @@ describe("OAuth credential storage", () => {
       },
     });
 
-    expect(loadOAuthCredentials("anthropic")).toBeNull();
+    await expect(loadOAuthCredentials("anthropic")).resolves.toBeNull();
   });
 });

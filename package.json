@@ -28,7 +28,10 @@
     "start": "office-addin-debugging start manifest.xml",
     "stop": "office-addin-debugging stop manifest.xml",
     "validate": "office-addin-manifest validate manifest.xml && office-addin-manifest validate manifest.prod.xml",
-    "watch": "vite build --mode development --watch"
+    "watch": "vite build --mode development --watch",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@google/genai": "^1.44.0",
@@ -54,6 +57,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.13",
+    "@playwright/test": "^1.44.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -70,6 +74,7 @@
     "office-addin-dev-certs": "^2.0.3",
     "office-addin-lint": "^3.0.3",
     "office-addin-manifest": "^2.0.3",
+    "office-addin-mock": "^1.0.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.4.2",
@@ -85,5 +90,8 @@
     "patchedDependencies": {
       "@mariozechner/pi-ai@0.57.1": "patches/@mariozechner__pi-ai@0.57.1.patch"
     }
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "*"
   }
 }

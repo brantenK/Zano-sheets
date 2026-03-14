@@ -171,13 +171,12 @@ const FALLBACK_CHAT_CONTEXT: ChatContextValue = {
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ChatState>(() => {
-    const saved = loadSavedConfig();
-    const initialConfig = saved ?? null;
+    // Initialize with empty providerConfig; load async in effect below
     return {
       messages: [],
       isStreaming: false,
       error: null,
-      providerConfig: initialConfig,
+      providerConfig: null,
       sessionStats: INITIAL_STATS,
       currentSession: null,
       sessions: [],
@@ -188,6 +187,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       skills: [],
     };
   });
+
+  // Load saved config asynchronously
+  useEffect(() => {
+    let isMounted = true;
+    loadSavedConfig()
+      .then((saved) => {
+        if (isMounted) {
+          setState((prev) => ({
+            ...prev,
+            providerConfig: saved ?? null,
+          }));
+        }
+      })
+      .catch((err) => {
+        console.error("[ChatContext] Failed to load saved config:", err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const agentRef = useRef<Agent | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
@@ -246,7 +265,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (config.authMethod !== "oauth") {
         return config.apiKey;
       }
-      const creds = loadOAuthCredentials(config.provider);
+      const creds = await loadOAuthCredentials(config.provider);
       if (!creds) return config.apiKey;
       if (!forceRefresh && Date.now() < creds.expires) {
         return creds.access;
@@ -257,7 +276,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         config.proxyUrl,
         config.useProxy,
       );
-      saveOAuthCredentials(config.provider, refreshed);
+      await saveOAuthCredentials(config.provider, refreshed);
       return refreshed.access;
     },
     [],
@@ -340,11 +359,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (!isProviderConfigReady(config)) {
-        return;
-      }
-
-      applyConfig(config);
+      // Handle async check for provider config readiness
+      isProviderConfigReady(config)
+        .then((ready) => {
+          if (ready) {
+            applyConfig(config);
+          }
+        })
+        .catch((err) => {
+          console.error("[ChatContext] isProviderConfigReady error:", err);
+        });
     },
     [applyConfig],
   );

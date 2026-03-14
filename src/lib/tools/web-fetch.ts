@@ -7,8 +7,8 @@ import { defineTool, toolError, toolText } from "./types";
 const DEFAULT_MAX_CHARS = 12000;
 const FETCH_TIMEOUT_MS = 15000;
 
-function getProxyUrl(): string | undefined {
-  const config = loadSavedConfig();
+async function getProxyUrl(): Promise<string | undefined> {
+  const config = await loadSavedConfig();
   return config?.useProxy && config?.proxyUrl ? config.proxyUrl : undefined;
 }
 
@@ -44,7 +44,7 @@ export const webFetchTool = defineTool({
     let fetchPromise: ReturnType<typeof fetchWeb> | null = null;
     try {
       const webConfig = loadWebConfig();
-      const proxyUrl = getProxyUrl();
+      const proxyUrl = await getProxyUrl();
       requireProxyOrThrow(proxyUrl);
       controller = new AbortController();
       onAbort = () => controller?.abort();

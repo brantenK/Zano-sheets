@@ -17,6 +17,12 @@ export interface TrackedContextResult {
 // biome-ignore lint/complexity/noBannedTypes: Proxy handlers need generic function type for dynamic method interception
 type AnyFunction = Function;
 
+/**
+ * Helper type for objects with dynamic property access.
+ * Used in Proxy handlers where we need to safely access properties on Excel objects.
+ */
+type DynamicObject = Record<string | symbol, unknown>;
+
 interface DirtyEntry {
   sheetIdRef: { id: number };
   range: string;
@@ -25,6 +31,26 @@ interface DirtyEntry {
 interface PendingSheetRef {
   sheet: Excel.Worksheet;
   sheetIdRef: { id: number };
+}
+
+/**
+ * Safely get a property from a dynamic object.
+ * This replaces `(target as any)[prop]` by using `as unknown` first.
+ */
+function getDynamicProperty(target: unknown, prop: string | symbol): unknown {
+  return (target as DynamicObject)[prop];
+}
+
+/**
+ * Safely set a property on a dynamic object.
+ * This replaces `(target as any)[prop] = value` by using `as unknown` first.
+ */
+function setDynamicProperty(
+  target: unknown,
+  prop: string | symbol,
+  value: unknown,
+): void {
+  (target as DynamicObject)[prop] = value;
 }
 
 /**
@@ -59,8 +85,12 @@ export function createTrackedContext(
   };
 
   // Helper to get clean address from range
-  const getCleanAddr = (target: any): string => {
-    const addr = target.m_address || target._address || "*";
+  // Uses internal Excel.js implementation details (m_address, _address)
+  const getCleanAddr = (target: unknown): string => {
+    const addr =
+      getDynamicProperty(target, "m_address") ||
+      getDynamicProperty(target, "_address") ||
+      "*";
     return typeof addr === "string" ? addr.split("!").pop() || "*" : "*";
   };
 
@@ -85,11 +115,11 @@ export function createTrackedContext(
         ) {
           markDirty(sheetIdRef, getAddress());
         }
-        (target as any)[prop] = value;
+        setDynamicProperty(target, prop, value);
         return true;
       },
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = getDynamicProperty(target, prop);
 
         // Wrap methods that return ranges (these create new ranges, address unknown)
         if (
@@ -139,7 +169,7 @@ export function createTrackedContext(
         // Wrap format property for tracking style changes
         if (prop === "format") {
           return createTrackedFormatWithRef(
-            value,
+            value as Excel.RangeFormat,
             sheetIdRef,
             range,
             knownAddress,
@@ -166,16 +196,16 @@ export function createTrackedContext(
     return new Proxy(format, {
       set(target, prop, value) {
         markDirty(sheetIdRef, getAddress());
-        (target as any)[prop] = value;
+        setDynamicProperty(target, prop, value);
         return true;
       },
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = getDynamicProperty(target, prop);
 
         // Track nested format properties (font, fill, borders)
         if (prop === "font" || prop === "fill" || prop === "borders") {
           return createTrackedFormatPartWithRef(
-            value,
+            value as unknown,
             sheetIdRef,
             range,
             knownAddress,
@@ -221,7 +251,7 @@ export function createTrackedContext(
   ): Excel.Worksheet => {
     return new Proxy(sheet, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = getDynamicProperty(target, prop);
 
         // Wrap getRange to return tracked ranges with known address
         if (prop === "getRange") {
@@ -245,13 +275,16 @@ export function createTrackedContext(
         if (prop === "delete") {
           return () => {
             markDirty(sheetIdRef, "*");
-            return value.call(target);
+            return (value as AnyFunction).call(target);
           };
         }
 
         // Track notes
         if (prop === "notes") {
-          return createTrackedNotesWithRef(value, sheetIdRef);
+          return createTrackedNotesWithRef(
+            value as Excel.CommentCollection,
+            sheetIdRef,
+          );
         }
 
         // Track charts and pivotTables
@@ -273,7 +306,7 @@ export function createTrackedContext(
   ): Excel.CommentCollection => {
     return new Proxy(notes, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = getDynamicProperty(target, prop);
 
         if (prop === "add") {
           return (...args: any[]) => {
@@ -324,7 +357,7 @@ export function createTrackedContext(
 
     return new Proxy(worksheets, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = getDynamicProperty(target, prop);
 
         // Wrap getItem, getActiveWorksheet, etc.
         if (
@@ -388,10 +421,10 @@ export function createTrackedContext(
   const createTrackedWorkbook = (workbook: Excel.Workbook): Excel.Workbook => {
     return new Proxy(workbook, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = getDynamicProperty(target, prop);
 
         if (prop === "worksheets") {
-          return createTrackedWorksheets(value);
+          return createTrackedWorksheets(value as Excel.WorksheetCollection);
         }
 
         if (typeof value === "function") {
@@ -404,10 +437,10 @@ export function createTrackedContext(
 
   const trackedContext = new Proxy(context, {
     get(target, prop) {
-      const value = (target as any)[prop];
+      const value = getDynamicProperty(target, prop);
 
       if (prop === "workbook") {
-        return createTrackedWorkbook(value);
+        return createTrackedWorkbook(value as Excel.Workbook);
       }
 
       // Intercept sync() to resolve pending sheet IDs after each sync

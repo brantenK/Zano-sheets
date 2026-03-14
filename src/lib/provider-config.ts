@@ -9,6 +9,11 @@ import {
   getSessionStorage,
 } from "./credential-storage";
 import { loadOAuthCredentials } from "./oauth";
+import {
+  decryptValue,
+  encryptValue,
+  isEncrypted,
+} from "./storage/crypto-utils";
 
 export type ThinkingLevel = "none" | "low" | "medium" | "high";
 export type BashMode = "on-demand" | "auto";
@@ -137,7 +142,9 @@ export function evaluateProviderConfig(
   return { blocking, warnings };
 }
 
-export function isProviderConfigReady(config: ProviderConfig): boolean {
+export async function isProviderConfigReady(
+  config: ProviderConfig,
+): Promise<boolean> {
   if (!config.provider || !config.model) return false;
 
   if (config.provider === "custom") {
@@ -147,7 +154,8 @@ export function isProviderConfigReady(config: ProviderConfig): boolean {
 
   if (config.authMethod === "oauth") {
     if (config.apiKey) return true;
-    return Boolean(loadOAuthCredentials(config.provider));
+    const creds = await loadOAuthCredentials(config.provider);
+    return Boolean(creds);
   }
 
   return Boolean(config.apiKey);
@@ -195,12 +203,25 @@ function clearApiKeysInStorage(storage: Storage) {
 }
 
 // Store API keys per provider
-export function loadApiKey(provider: string): string {
+export async function loadApiKey(provider: string): Promise<string> {
   if (!provider) return "";
   const storage = getCredentialStorage();
   try {
     const providerScopedKey = storage.getItem(providerKeyStorageKey(provider));
     if (typeof providerScopedKey === "string") {
+      // Try to decrypt; if it fails or returns null, treat as plaintext (migration)
+      if (isEncrypted(providerScopedKey)) {
+        const decrypted = await decryptValue(providerScopedKey);
+        if (decrypted !== null) {
+          return decrypted;
+        }
+        // Decryption failed - treat as plaintext and re-encrypt
+        console.warn(
+          "[ProviderConfig] loadApiKey: Decryption failed, treating as plaintext",
+        );
+        return providerScopedKey;
+      }
+      // Plaintext value - return as-is (will be re-encrypted on save)
       return providerScopedKey;
     }
 
@@ -213,7 +234,9 @@ export function loadApiKey(provider: string): string {
       const key = store[provider] || "";
       if (key) {
         try {
-          storage.setItem(providerKeyStorageKey(provider), key);
+          // When migrating old plaintext keys, encrypt them immediately
+          const encrypted = await encryptValue(key);
+          storage.setItem(providerKeyStorageKey(provider), encrypted);
         } catch {
           /* ignore migration write failures */
         }
@@ -237,15 +260,21 @@ export function loadApiKey(provider: string): string {
   }
 }
 
-export function saveApiKey(provider: string, apiKey: string) {
+export async function saveApiKey(
+  provider: string,
+  apiKey: string,
+): Promise<void> {
   if (!provider) return;
   const storage = getCredentialStorage();
   try {
-    storage.setItem(providerKeyStorageKey(provider), apiKey);
+    // Encrypt the API key before storing
+    const encrypted = await encryptValue(apiKey);
+    storage.setItem(providerKeyStorageKey(provider), encrypted);
 
+    // Also update the legacy combined store (encrypted)
     const currentStore = storage.getItem(API_KEYS_STORAGE_KEY);
     const store = parseApiKeysStore(currentStore);
-    store[provider] = apiKey;
+    store[provider] = encrypted;
     storage.setItem(API_KEYS_STORAGE_KEY, JSON.stringify(store));
   } catch (err) {
     console.error("[ProviderConfig] saveApiKey: ERROR:", err);
@@ -261,7 +290,7 @@ export function clearStoredApiKeys(storage?: Storage) {
   }
 }
 
-export function loadSavedConfig(): ProviderConfig | null {
+export async function loadSavedConfig(): Promise<ProviderConfig | null> {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return null;
@@ -298,10 +327,10 @@ export function loadSavedConfig(): ProviderConfig | null {
 
     // Load the API key for this specific provider
     if (config.authMethod === "apikey") {
-      config.apiKey = loadApiKey(config.provider);
+      config.apiKey = await loadApiKey(config.provider);
     }
     if (config.authMethod === "oauth") {
-      const creds = loadOAuthCredentials(config.provider);
+      const creds = await loadOAuthCredentials(config.provider);
       if (creds) {
         config.apiKey = creds.access;
       }
