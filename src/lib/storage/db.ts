@@ -333,9 +333,10 @@ async function evictOldSessionsIfNeeded(
 
       if (vfsKeys.length > 0) {
         const tx = db.transaction(["vfsFiles", "sessions"], "readwrite");
-        for (const key of vfsKeys) {
-          await tx.objectStore("vfsFiles").delete(key);
-        }
+        // Optimize: Use Promise.all to avoid sequential N+1 bottlenecks
+        await Promise.all(
+          vfsKeys.map((key) => tx.objectStore("vfsFiles").delete(key)),
+        );
         await tx.objectStore("sessions").put({
           ...session,
           lastVfsEviction: Date.now(),
@@ -362,18 +363,19 @@ export async function saveVfsFiles(
     const vfsStore = tx.objectStore("vfsFiles");
     const sessionsStore = tx.objectStore("sessions");
     const existing = await vfsStore.index("sessionId").getAllKeys(sessionId);
-    for (const key of existing) {
-      await vfsStore.delete(key);
-    }
-    for (const f of files) {
-      await vfsStore.add({
-        id: `${workbookId}:${sessionId}:${f.path}`,
-        workbookId,
-        sessionId,
-        path: f.path,
-        data: f.data,
-      });
-    }
+    // Optimize: Use Promise.all to avoid sequential N+1 bottlenecks
+    await Promise.all([
+      ...existing.map((key) => vfsStore.delete(key)),
+      ...files.map((f) =>
+        vfsStore.add({
+          id: `${workbookId}:${sessionId}:${f.path}`,
+          workbookId,
+          sessionId,
+          path: f.path,
+          data: f.data,
+        }),
+      ),
+    ]);
 
     const session = await sessionsStore.get(sessionId);
     if (session?.lastVfsEviction) {
@@ -397,9 +399,8 @@ export async function deleteVfsFiles(sessionId: string): Promise<void> {
   const db = await getDb();
   const tx = db.transaction("vfsFiles", "readwrite");
   const keys = await tx.store.index("sessionId").getAllKeys(sessionId);
-  for (const key of keys) {
-    await tx.store.delete(key);
-  }
+  // Optimize: Use Promise.all to avoid sequential N+1 bottlenecks
+  await Promise.all(keys.map((key) => tx.store.delete(key)));
   await tx.done;
 }
 
@@ -411,17 +412,18 @@ export async function saveSkillFiles(
   const tx = db.transaction("skillFiles", "readwrite");
   const store = tx.store;
   const existing = await store.index("skillName").getAllKeys(skillName);
-  for (const key of existing) {
-    await store.delete(key);
-  }
-  for (const f of files) {
-    await store.add({
-      id: `${skillName}:${f.path}`,
-      skillName,
-      path: f.path,
-      data: f.data,
-    });
-  }
+  // Optimize: Use Promise.all to avoid sequential N+1 bottlenecks
+  await Promise.all([
+    ...existing.map((key) => store.delete(key)),
+    ...files.map((f) =>
+      store.add({
+        id: `${skillName}:${f.path}`,
+        skillName,
+        path: f.path,
+        data: f.data,
+      }),
+    ),
+  ]);
   await tx.done;
 }
 
@@ -449,9 +451,8 @@ export async function deleteSkillFiles(skillName: string): Promise<void> {
   const db = await getDb();
   const tx = db.transaction("skillFiles", "readwrite");
   const keys = await tx.store.index("skillName").getAllKeys(skillName);
-  for (const key of keys) {
-    await tx.store.delete(key);
-  }
+  // Optimize: Use Promise.all to avoid sequential N+1 bottlenecks
+  await Promise.all(keys.map((key) => tx.store.delete(key)));
   await tx.done;
 }
 
