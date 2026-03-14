@@ -4,8 +4,7 @@ import { columnIndexToLetter } from "./excel-utils";
 import { createSearchPageCollector } from "./search-data-pagination";
 import { getStableSheetId, preloadSheetIds } from "./sheet-id-map";
 
-export { getStableSheetId, preloadSheetIds };
-export { columnIndexToLetter };
+export { columnIndexToLetter, getStableSheetId, preloadSheetIds };
 
 export interface CellData {
   value: string | number | boolean | null;

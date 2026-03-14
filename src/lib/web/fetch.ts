@@ -262,14 +262,19 @@ const exaFetchProvider: FetchProvider = {
       text: true,
     };
 
-    const resp = await fetchWithProxy(endpoint, context.proxyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
+    const resp = await fetchWithProxy(
+      endpoint,
+      context.proxyUrl,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    }, { skipProxy: true }); // Exa API has CORS support, use direct fetch
+      { skipProxy: true },
+    ); // Exa API has CORS support, use direct fetch
 
     if (resp.ok) {
       const json = (await resp.json()) as ExaContentsResponse;

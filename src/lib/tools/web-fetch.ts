@@ -54,7 +54,9 @@ export const webFetchTool = defineTool({
 
       const header = [
         result.title ? `Title: ${result.title}` : "",
-        ...Object.entries(result.metadata || {}).map(([key, value]) => `${key}: ${value}`),
+        ...Object.entries(result.metadata || {}).map(
+          ([key, value]) => `${key}: ${value}`,
+        ),
       ]
         .filter(Boolean)
         .join("\n");
