@@ -94,7 +94,6 @@ export function ChatInput() {
         abort();
         return;
       }
-
     },
     [handleSubmit, state.isStreaming, abort],
   );
