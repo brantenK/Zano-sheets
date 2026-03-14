@@ -25,13 +25,9 @@ import { getSessionMessageCount } from "../../../lib/storage";
 import { ToastProvider } from "../toast/toast-context";
 import { ChatProvider, useChat } from "./chat-context";
 import { ChatInput } from "./chat-input";
-
+import { MessageList } from "./message-list";
+import { HelpButton, HelpModal } from "./onboarding-help";
 import type { ChatTab } from "./types";
-
-const LazyMessageList = lazy(async () => {
-  const module = await import("./message-list");
-  return { default: module.MessageList };
-});
 
 const LazyOnboardingTour = lazy(async () => {
   const module = await import("./onboarding-tour");
@@ -117,14 +113,6 @@ export function getNextDragStateOnLeave(counter: number): {
   };
 }
 
-function ChatViewSkeleton() {
-  return (
-    <div className="flex-1 px-4 py-6">
-      <div className="h-full rounded-sm border border-(--chat-border) bg-(--chat-bg-secondary)/40" />
-    </div>
-  );
-}
-
 function SettingsSkeleton() {
   return (
     <div
@@ -151,46 +139,60 @@ function StatsBar() {
       : "0";
 
   return (
-    <div
+    <output
       className="flex items-center justify-between px-3 py-1.5 text-[10px] border-t border-(--chat-border) bg-(--chat-bg-secondary) text-(--chat-text-muted)"
       style={{ fontFamily: "var(--chat-font-mono)" }}
+      aria-live="polite"
     >
-      <div className="flex items-center gap-3">
-        <span title="Input tokens">
+      <fieldset className="flex items-center gap-3 border-0 p-0 m-0">
+        <legend className="sr-only">Token statistics</legend>
+        <span title={`Input tokens: ${formatTokens(sessionStats.inputTokens)}`}>
           ↑{formatTokens(sessionStats.inputTokens)}
         </span>
-        <span title="Output tokens">
+        <span
+          title={`Output tokens: ${formatTokens(sessionStats.outputTokens)}`}
+        >
           ↓{formatTokens(sessionStats.outputTokens)}
         </span>
         {sessionStats.cacheRead > 0 && (
-          <span title="Cache read tokens">
+          <span title={`Cache read: ${formatTokens(sessionStats.cacheRead)}`}>
             R{formatTokens(sessionStats.cacheRead)}
           </span>
         )}
         {sessionStats.cacheWrite > 0 && (
-          <span title="Cache write tokens">
+          <span title={`Cache write: ${formatTokens(sessionStats.cacheWrite)}`}>
             W{formatTokens(sessionStats.cacheWrite)}
           </span>
         )}
-        <span title="Total cost">{formatCost(sessionStats.totalCost)}</span>
+        <span title={`Total cost: ${formatCost(sessionStats.totalCost)}`}>
+          {formatCost(sessionStats.totalCost)}
+        </span>
         {sessionStats.contextWindow > 0 && (
-          <span title="Context usage">
+          <span
+            title={`Context usage: ${contextPct}% of ${formatTokens(sessionStats.contextWindow)}`}
+          >
             {contextPct}%/{formatTokens(sessionStats.contextWindow)}
           </span>
         )}
-      </div>
-      <div className="flex items-center gap-1">
+      </fieldset>
+      <fieldset className="flex items-center gap-1 border-0 p-0 m-0">
+        <legend className="sr-only">
+          {`Provider: ${providerConfig.provider}, Model: ${providerConfig.model}`}
+        </legend>
         <span>{providerConfig.provider}</span>
         <span className="text-(--chat-text-secondary)">
           {providerConfig.model}
         </span>
         {providerConfig.thinking !== "none" && (
-          <span className="text-(--chat-accent)">
+          <span
+            className="text-(--chat-accent)"
+            title={`Thinking mode: ${providerConfig.thinking}`}
+          >
             • {providerConfig.thinking}
           </span>
         )}
-      </div>
-    </div>
+      </fieldset>
+    </output>
   );
 }
 
@@ -207,6 +209,8 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      role="tab"
+      aria-selected={active}
       className={`
         flex items-center gap-1.5 px-3 py-2 text-xs uppercase tracking-wider
         border-b-2 transition-colors
@@ -363,11 +367,13 @@ function ChatHeader({
   onTabChange,
   theme,
   onThemeToggle,
+  onShowHelp,
 }: {
   activeTab: ChatTab;
   onTabChange: (tab: ChatTab) => void;
   theme: Theme;
   onThemeToggle: () => void;
+  onShowHelp: () => void;
 }) {
   const { clearMessages, state, toggleFollowMode } = useChat();
   const followMode = state.providerConfig?.followMode ?? true;
@@ -411,6 +417,7 @@ function ChatHeader({
               {followMode ? <Eye size={14} /> : <EyeOff size={14} />}
             </button>
           )}
+          <HelpButton onClick={onShowHelp} />
           <button
             type="button"
             onClick={onThemeToggle}
@@ -444,12 +451,14 @@ function ChatContent() {
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [walkthroughActive, setWalkthroughActive] = useState(false);
 
   // Check if onboarding should be shown
   useEffect(() => {
     try {
       const ONBOARDING_KEY = "zanosheets-onboarding-complete";
-      const ONBOARDING_VERSION = "1";
+      const ONBOARDING_VERSION = "2";
       const saved = localStorage.getItem(ONBOARDING_KEY);
       if (saved !== ONBOARDING_VERSION) {
         setShowOnboarding(true);
@@ -484,6 +493,13 @@ function ChatContent() {
         if (state.messages.length > 0) {
           clearMessages();
         }
+        return;
+      }
+
+      // Ctrl+?: Toggle help
+      if (e.ctrlKey && e.key === "?") {
+        e.preventDefault();
+        setShowHelp((prev) => !prev);
         return;
       }
 
@@ -563,6 +579,12 @@ function ChatContent() {
 
   const handleOnboardingComplete = useCallback(() => {
     setShowOnboarding(false);
+    setWalkthroughActive(false);
+  }, []);
+
+  const handleStartWalkthrough = useCallback(() => {
+    setWalkthroughActive(true);
+    setShowOnboarding(false);
   }, []);
 
   return (
@@ -580,12 +602,11 @@ function ChatContent() {
         onTabChange={setActiveTab}
         theme={theme}
         onThemeToggle={toggle}
+        onShowHelp={() => setShowHelp(true)}
       />
       {activeTab === "chat" ? (
         <>
-          <Suspense fallback={<ChatViewSkeleton />}>
-            <LazyMessageList />
-          </Suspense>
+          <MessageList />
           <ChatInput />
           <StatsBar />
         </>
@@ -608,14 +629,18 @@ function ChatContent() {
       )}
 
       {/* Onboarding tour */}
-      {showOnboarding && (
+      {showOnboarding && !walkthroughActive && (
         <Suspense fallback={null}>
           <LazyOnboardingTour
             onComplete={handleOnboardingComplete}
             onOpenSettings={handleOpenSettings}
+            onStartWalkthrough={handleStartWalkthrough}
           />
         </Suspense>
       )}
+
+      {/* Help modal */}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 }
